@@ -12,15 +12,34 @@ environment:
   DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_INSTALL_DIR: '%USERPROFILE%\.dotnet'
+
+cache:
+  - '%USERPROFILE%\.dotnet -> appveyor.yml'
+  - '%USERPROFILE%\.nuget\packages -> **\*.csproj, **\packages.lock.json'
+  - '%LOCALAPPDATA%\NuGet\v3-cache -> **\*.csproj, **\packages.lock.json'
 
 install:
+  - ps: |
+      $dotnetRoot = "$env:USERPROFILE\.dotnet"
+      $dotnetExe = Join-Path $dotnetRoot "dotnet.exe"
+      if (-not (Test-Path $dotnetExe)) {
+        New-Item -ItemType Directory -Force -Path $dotnetRoot | Out-Null
+        $installer = Join-Path $env:TEMP "dotnet-install.ps1"
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile $installer
+        & $installer -Channel 10.0 -InstallDir $dotnetRoot -Architecture x64
+      }
+      $env:PATH = "$dotnetRoot;$env:PATH"
+      Set-AppveyorBuildVariable -Name PATH -Value $env:PATH
+      Set-AppveyorBuildVariable -Name DOTNET_ROOT -Value $dotnetRoot
   - ps: dotnet --info
 
 before_build:
-  - ps: dotnet restore StreamForge.sln
+  - ps: dotnet restore StreamForge.sln /p:Configuration=$env:CONFIGURATION /p:Platform=$env:PLATFORM
 
 build_script:
-  - ps: dotnet build StreamForge.sln --configuration $env:CONFIGURATION --no-restore
+  - ps: dotnet build StreamForge.sln --configuration $env:CONFIGURATION --no-restore /p:Platform=$env:PLATFORM
 
 test_script:
   - ps: dotnet test tests\StreamForge.Infrastructure.Tests\StreamForge.Infrastructure.Tests.csproj --configuration $env:CONFIGURATION --no-build --logger "trx;LogFileName=Infrastructure.Tests.trx"
