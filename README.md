@@ -1,5 +1,12 @@
 # StreamForge
 
+[![AppVeyor](https://img.shields.io/appveyor/build/Pasindu/streamforge-desktop?logo=appveyor)](https://ci.appveyor.com/project/Pasindu/streamforge-desktop)
+[![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
+[![Windows App SDK](https://img.shields.io/nuget/v/Microsoft.WindowsAppSDK?label=Windows%20App%20SDK&logo=windows)](https://www.nuget.org/packages/Microsoft.WindowsAppSDK)
+[![Playwright](https://img.shields.io/nuget/v/Microsoft.Playwright?label=Microsoft.Playwright)](https://www.nuget.org/packages/Microsoft.Playwright)
+[![MVVM Toolkit](https://img.shields.io/nuget/v/CommunityToolkit.Mvvm?label=CommunityToolkit.Mvvm)](https://www.nuget.org/packages/CommunityToolkit.Mvvm)
+[![xUnit](https://img.shields.io/nuget/v/xunit?label=xUnit)](https://www.nuget.org/packages/xunit)
+
 StreamForge is a Windows desktop application for detecting authorized non-DRM media streams from supported video pages and remuxing them to local MP4 files with FFmpeg.
 
 ## Requirements
