@@ -28,47 +28,47 @@ public sealed partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(AnalyzeCommand))]
-    private string pageUrl = string.Empty;
+    public partial string PageUrl { get; set; } = string.Empty;
 
     [ObservableProperty]
-    private string detectedStreamUrl = string.Empty;
+    public partial string DetectedStreamUrl { get; set; } = string.Empty;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(DownloadCommand))]
-    private StreamQuality? selectedQuality;
+    public partial StreamQuality? SelectedQuality { get; set; }
 
     public ObservableCollection<StreamQuality> AvailableQualities { get; } = [];
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(DownloadCommand))]
-    private string outputPath = string.Empty;
+    public partial string OutputPath { get; set; } = string.Empty;
 
     [ObservableProperty]
-    private string statusMessage = string.Empty;
+    public partial string StatusMessage { get; set; } = string.Empty;
 
     [ObservableProperty]
-    private double progressPercentage;
+    public partial double ProgressPercentage { get; set; }
 
     [ObservableProperty]
-    private string downloadSpeed = "Speed: --";
+    public partial string DownloadSpeed { get; set; } = "Speed: --";
 
     [ObservableProperty]
-    private long downloadedBytes;
+    public partial long DownloadedBytes { get; set; }
 
     [ObservableProperty]
-    private string downloadedBytesDisplay = "Downloaded: 0 MB";
+    public partial string DownloadedBytesDisplay { get; set; } = "Downloaded: 0 MB";
 
     [ObservableProperty]
-    private string elapsedTime = "Elapsed: 00:00:00";
+    public partial string ElapsedTime { get; set; } = "Elapsed: 00:00:00";
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(AnalyzeCommand))]
-    private bool isAnalyzing;
+    public partial bool IsAnalyzing { get; set; }
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(AnalyzeCommand))]
     [NotifyCanExecuteChangedFor(nameof(DownloadCommand))]
-    private bool isDownloading;
+    public partial bool IsDownloading { get; set; }
 
     public bool CanAnalyze => !IsAnalyzing && !IsDownloading && Uri.TryCreate(PageUrl, UriKind.Absolute, out _);
 

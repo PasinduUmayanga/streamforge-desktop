@@ -1,6 +1,6 @@
 # StreamForge
 
-[![AppVeyor](https://img.shields.io/appveyor/build/Pasindu/streamforge-desktop?logo=appveyor)](https://ci.appveyor.com/project/Pasindu/streamforge-desktop)
+[![Build status](https://ci.appveyor.com/api/projects/status/4wcjmfdh9g04lfe0?svg=true)](https://ci.appveyor.com/project/Mahadenamuththa/streamforge-desktop)
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
 [![Windows App SDK](https://img.shields.io/nuget/v/Microsoft.WindowsAppSDK?label=Windows%20App%20SDK&logo=windows)](https://www.nuget.org/packages/Microsoft.WindowsAppSDK)
 [![Playwright](https://img.shields.io/nuget/v/Microsoft.Playwright?label=Microsoft.Playwright)](https://www.nuget.org/packages/Microsoft.Playwright)
