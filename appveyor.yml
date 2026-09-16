@@ -1,0 +1,40 @@
+version: 1.0.{build}
+
+image: Visual Studio 2022
+
+platform:
+  - x64
+
+configuration:
+  - Debug
+
+environment:
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+install:
+  - ps: dotnet --info
+
+before_build:
+  - ps: dotnet restore StreamForge.sln
+
+build_script:
+  - ps: dotnet build StreamForge.sln --configuration $env:CONFIGURATION --no-restore
+
+test_script:
+  - ps: dotnet test tests\StreamForge.Infrastructure.Tests\StreamForge.Infrastructure.Tests.csproj --configuration $env:CONFIGURATION --no-build --logger "trx;LogFileName=Infrastructure.Tests.trx"
+
+artifacts:
+  - path: tests\**\TestResults\*.trx
+    name: test-results
+
+on_finish:
+  - ps: |
+      $results = Resolve-Path tests\**\TestResults\*.trx -ErrorAction SilentlyContinue
+      if ($results) {
+        $wc = New-Object System.Net.WebClient
+        foreach ($result in $results) {
+          $wc.UploadFile("https://ci.appveyor.com/api/testresults/mstest/$($env:APPVEYOR_JOB_ID)", $result)
+        }
+      }

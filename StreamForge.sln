@@ -1,0 +1,42 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "StreamForge.App", "src\StreamForge.App\StreamForge.App.csproj", "{50A4F72E-F924-4B4A-ADE4-469630043B2F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "StreamForge.Core", "src\StreamForge.Core\StreamForge.Core.csproj", "{C548EB29-7BCB-4390-9D3A-7FD7164F1F3A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "StreamForge.Infrastructure", "src\StreamForge.Infrastructure\StreamForge.Infrastructure.csproj", "{403CF9BD-F757-471B-809F-B2C819C8B74B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "StreamForge.Core.Tests", "tests\StreamForge.Core.Tests\StreamForge.Core.Tests.csproj", "{5E98E414-43C1-49DB-8696-A765287CC769}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "StreamForge.Infrastructure.Tests", "tests\StreamForge.Infrastructure.Tests\StreamForge.Infrastructure.Tests.csproj", "{19F3D481-7817-4D1B-86F0-B595976FB985}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{50A4F72E-F924-4B4A-ADE4-469630043B2F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{50A4F72E-F924-4B4A-ADE4-469630043B2F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{50A4F72E-F924-4B4A-ADE4-469630043B2F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{50A4F72E-F924-4B4A-ADE4-469630043B2F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C548EB29-7BCB-4390-9D3A-7FD7164F1F3A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C548EB29-7BCB-4390-9D3A-7FD7164F1F3A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C548EB29-7BCB-4390-9D3A-7FD7164F1F3A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C548EB29-7BCB-4390-9D3A-7FD7164F1F3A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{403CF9BD-F757-471B-809F-B2C819C8B74B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{403CF9BD-F757-471B-809F-B2C819C8B74B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{403CF9BD-F757-471B-809F-B2C819C8B74B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{403CF9BD-F757-471B-809F-B2C819C8B74B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5E98E414-43C1-49DB-8696-A765287CC769}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5E98E414-43C1-49DB-8696-A765287CC769}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5E98E414-43C1-49DB-8696-A765287CC769}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5E98E414-43C1-49DB-8696-A765287CC769}.Release|Any CPU.Build.0 = Release|Any CPU
+		{19F3D481-7817-4D1B-86F0-B595976FB985}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{19F3D481-7817-4D1B-86F0-B595976FB985}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{19F3D481-7817-4D1B-86F0-B595976FB985}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{19F3D481-7817-4D1B-86F0-B595976FB985}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

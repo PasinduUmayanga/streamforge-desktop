@@ -1,0 +1,5 @@
+#EXTM3U
+#EXTINF:6.0,
+segment0001.ts
+#EXTINF:6.0,
+segment0002.ts

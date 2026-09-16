@@ -1,0 +1,5 @@
+frame=1
+fps=0.0
+total_size=471859200
+out_time=00:03:24.000000
+speed=5.2x

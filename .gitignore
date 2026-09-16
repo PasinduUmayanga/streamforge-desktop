@@ -1,0 +1,33 @@
+bin/
+obj/
+.vs/
+.vscode/
+*.user
+*.suo
+TestResults/
+playwright.ps1
+
+# .NET / test artifacts
+*.nupkg
+*.snupkg
+*.trx
+*.coverage
+*.coveragexml
+coverage/
+artifacts/
+
+# Windows / Visual Studio
+*.userosscache
+*.sln.docstates
+ipch/
+*.VC.db
+*.VC.VC.opendb
+
+# Logs
+*.log
+msbuild.binlog
+
+# App packages / publish output
+AppPackages/
+BundleArtifacts/
+publish/
