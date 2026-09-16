@@ -108,7 +108,7 @@ public sealed partial class MainViewModel : ObservableObject
         ResetDetection();
         IsAnalyzing = true;
         _operationCts = new CancellationTokenSource();
-        StatusMessage = "Finding media stream...";
+        StatusMessage = "Loading page and monitoring media requests...";
 
         try
         {
@@ -118,6 +118,8 @@ public sealed partial class MainViewModel : ObservableObject
                 StatusMessage = "No supported media stream was detected.";
                 return;
             }
+
+            StatusMessage = "Media stream found; analyzing available qualities...";
 
             foreach (var analyzer in _streamAnalyzers.Where(a => a.CanAnalyze(stream)))
             {

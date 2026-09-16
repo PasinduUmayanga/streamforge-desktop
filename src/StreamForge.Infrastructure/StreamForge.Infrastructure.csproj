@@ -11,4 +11,7 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />
     <PackageReference Include="Microsoft.Playwright" Version="1.54.0" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="StreamForge.Infrastructure.Tests" />
+  </ItemGroup>
 </Project>
