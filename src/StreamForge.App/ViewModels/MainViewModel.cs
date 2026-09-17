@@ -24,11 +24,28 @@ public sealed partial class MainViewModel : ObservableObject
         _downloadService = downloadService;
         OutputPath = CreateDefaultOutputPath();
         StatusMessage = "Ready.";
+        ResetIdentificationSteps();
     }
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(AnalyzeCommand))]
     public partial string PageUrl { get; set; } = string.Empty;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(GoToAnalyzeStepCommand))]
+    [NotifyCanExecuteChangedFor(nameof(GoToStreamStepCommand))]
+    [NotifyCanExecuteChangedFor(nameof(GoToDownloadStepCommand))]
+    public partial int WizardStepIndex { get; set; }
+
+    public bool IsAnalyzeStepActive => WizardStepIndex == 0;
+
+    public bool IsAnalysisProgressStepActive => WizardStepIndex == 1;
+
+    public bool IsStreamStepActive => WizardStepIndex == 2;
+
+    public bool IsDownloadStepActive => WizardStepIndex == 3;
+
+    public bool IsCompleteStepActive => WizardStepIndex == 4;
 
     [ObservableProperty]
     public partial string DetectedStreamUrl { get; set; } = string.Empty;
@@ -41,12 +58,26 @@ public sealed partial class MainViewModel : ObservableObject
 
     public ObservableCollection<NetworkActivity> NetworkActivities { get; } = [];
 
+    public ObservableCollection<IdentificationStepUpdate> IdentificationSteps { get; } = [];
+
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(DownloadCommand))]
     public partial string OutputPath { get; set; } = string.Empty;
 
     [ObservableProperty]
     public partial string StatusMessage { get; set; } = string.Empty;
+
+    [ObservableProperty]
+    public partial bool UseLocalAiAdvisor { get; set; }
+
+    [ObservableProperty]
+    public partial string LocalAiEndpoint { get; set; } = "http://localhost:11434";
+
+    [ObservableProperty]
+    public partial string LocalAiModel { get; set; } = "qwen3-coder-next";
+
+    [ObservableProperty]
+    public partial string AiDiagnostic { get; set; } = "Local AI diagnostics are off.";
 
     [ObservableProperty]
     public partial string DownloadApiUrl { get; set; } = string.Empty;
@@ -77,6 +108,8 @@ public sealed partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(AnalyzeCommand))]
+    [NotifyCanExecuteChangedFor(nameof(BrowseOutputCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CancelCommand))]
     public partial bool IsAnalyzing { get; set; }
 
     [ObservableProperty]
@@ -84,6 +117,8 @@ public sealed partial class MainViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(DownloadCommand))]
     [NotifyCanExecuteChangedFor(nameof(PauseCommand))]
     [NotifyCanExecuteChangedFor(nameof(ResumeCommand))]
+    [NotifyCanExecuteChangedFor(nameof(BrowseOutputCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CancelCommand))]
     public partial bool IsDownloading { get; set; }
 
     [ObservableProperty]
@@ -103,6 +138,20 @@ public sealed partial class MainViewModel : ObservableObject
 
     public bool CanResume => IsDownloading && IsPaused;
 
+    public bool CanEditPageUrl => !IsAnalyzing && !IsDownloading;
+
+    public bool CanConfigureDownload => !IsAnalyzing && !IsDownloading;
+
+    public bool CanEditAiSettings => CanEditPageUrl && UseLocalAiAdvisor;
+
+    public bool CanCancel => IsAnalyzing || IsDownloading;
+
+    public bool CanGoToAnalyzeStep => !IsAnalyzing && !IsDownloading;
+
+    public bool CanGoToStreamStep => !IsAnalyzing && !IsDownloading && _detectedStream is not null;
+
+    public bool CanGoToDownloadStep => CanGoToStreamStep && SelectedQuality is not null;
+
     partial void OnPageUrlChanged(string value) => OnPropertyChanged(nameof(CanAnalyze));
 
     partial void OnOutputPathChanged(string value) => OnPropertyChanged(nameof(CanDownload));
@@ -110,13 +159,22 @@ public sealed partial class MainViewModel : ObservableObject
     partial void OnSelectedQualityChanged(StreamQuality? value)
     {
         OnPropertyChanged(nameof(CanDownload));
+        OnPropertyChanged(nameof(CanGoToDownloadStep));
+        GoToDownloadStepCommand.NotifyCanExecuteChanged();
         DownloadApiUrl = value?.Url.AbsoluteUri ?? _detectedStream?.Url.AbsoluteUri ?? string.Empty;
     }
+
+    partial void OnUseLocalAiAdvisorChanged(bool value) => OnPropertyChanged(nameof(CanEditAiSettings));
 
     partial void OnIsAnalyzingChanged(bool value)
     {
         OnPropertyChanged(nameof(CanAnalyze));
         OnPropertyChanged(nameof(CanDownload));
+        OnPropertyChanged(nameof(CanEditPageUrl));
+        OnPropertyChanged(nameof(CanConfigureDownload));
+        OnPropertyChanged(nameof(CanEditAiSettings));
+        OnPropertyChanged(nameof(CanCancel));
+        RefreshWizardNavigation();
     }
 
     partial void OnIsDownloadingChanged(bool value)
@@ -125,12 +183,44 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(CanDownload));
         OnPropertyChanged(nameof(CanPause));
         OnPropertyChanged(nameof(CanResume));
+        OnPropertyChanged(nameof(CanEditPageUrl));
+        OnPropertyChanged(nameof(CanConfigureDownload));
+        OnPropertyChanged(nameof(CanEditAiSettings));
+        OnPropertyChanged(nameof(CanCancel));
+        RefreshWizardNavigation();
     }
 
     partial void OnIsPausedChanged(bool value)
     {
         OnPropertyChanged(nameof(CanPause));
         OnPropertyChanged(nameof(CanResume));
+    }
+
+    partial void OnWizardStepIndexChanged(int value)
+    {
+        OnPropertyChanged(nameof(IsAnalyzeStepActive));
+        OnPropertyChanged(nameof(IsAnalysisProgressStepActive));
+        OnPropertyChanged(nameof(IsStreamStepActive));
+        OnPropertyChanged(nameof(IsDownloadStepActive));
+        OnPropertyChanged(nameof(IsCompleteStepActive));
+    }
+
+    [RelayCommand(CanExecute = nameof(CanGoToAnalyzeStep))]
+    private void GoToAnalyzeStep()
+    {
+        WizardStepIndex = 0;
+    }
+
+    [RelayCommand(CanExecute = nameof(CanGoToStreamStep))]
+    private void GoToStreamStep()
+    {
+        WizardStepIndex = 2;
+    }
+
+    [RelayCommand(CanExecute = nameof(CanGoToDownloadStep))]
+    private void GoToDownloadStep()
+    {
+        WizardStepIndex = 3;
     }
 
     [RelayCommand(CanExecute = nameof(CanAnalyze))]
@@ -142,30 +232,71 @@ public sealed partial class MainViewModel : ObservableObject
             return;
         }
 
-        ResetDetection();
-        IsAnalyzing = true;
-        _operationCts = new CancellationTokenSource();
-        StatusMessage = "Loading page and monitoring media requests...";
-
         try
         {
+            if (!TryCreateExtractionOptions(out var extractionOptions))
+            {
+                return;
+            }
+
+            ResetDetection();
+            WizardStepIndex = 1;
+            IsAnalyzing = true;
+            _operationCts = new CancellationTokenSource();
+            StatusMessage = "Loading page and monitoring media requests...";
+
             var networkActivity = new Progress<NetworkActivity>(AddNetworkActivity);
-            var stream = await _streamExtractor.ExtractAsync(pageUri, networkActivity, _operationCts.Token);
+            var identificationProgress = new Progress<IdentificationStepUpdate>(UpdateIdentificationStep);
+            var extraction = await _streamExtractor.ExtractAsync(
+                pageUri,
+                extractionOptions,
+                networkActivity,
+                identificationProgress,
+                _operationCts.Token);
+            AiDiagnostic = extraction.AiAdvisorUsed
+                ? extraction.AiDiagnostic ?? "The local AI advisor returned no additional details."
+                : UseLocalAiAdvisor
+                    ? "No sanitized player response required AI classification."
+                    : "Local AI diagnostics are off.";
+
+            var stream = extraction.Stream;
             if (stream is null)
             {
-                StatusMessage = "No supported media stream was detected.";
+                UpdateIdentificationStep(Step(
+                    IdentificationStepKeys.AnalyzeManifest,
+                    8,
+                    "Analyze manifest and qualities",
+                    IdentificationStepStatus.Skipped,
+                    "No stream was selected."));
+                StatusMessage = extraction.Message;
                 return;
             }
 
             StatusMessage = "Media stream found; analyzing available qualities...";
+            UpdateIdentificationStep(Step(
+                IdentificationStepKeys.AnalyzeManifest,
+                8,
+                "Analyze manifest and qualities",
+                IdentificationStepStatus.Identifying,
+                $"Inspecting the selected {stream.Type} source."));
 
             foreach (var analyzer in _streamAnalyzers.Where(a => a.CanAnalyze(stream)))
             {
                 stream = await analyzer.AnalyzeAsync(stream, _operationCts.Token);
             }
 
+            UpdateIdentificationStep(Step(
+                IdentificationStepKeys.AnalyzeManifest,
+                8,
+                "Analyze manifest and qualities",
+                IdentificationStepStatus.Success,
+                stream.Qualities.Count > 0
+                    ? $"Found {stream.Qualities.Count} selectable quality option(s)."
+                    : "The stream is ready for download."));
+
             _detectedStream = stream;
             OnPropertyChanged(nameof(CanDownload));
+            RefreshWizardNavigation();
             DetectedStreamUrl = stream.Url.AbsoluteUri;
             RequestContextDisplay = BuildRequestContext(stream);
             AvailableQualities.Clear();
@@ -175,14 +306,34 @@ public sealed partial class MainViewModel : ObservableObject
             }
 
             SelectedQuality = AvailableQualities.FirstOrDefault();
-            StatusMessage = $"Detected {stream.Type} stream.";
+            StatusMessage = extraction.Message;
+            WizardStepIndex = 2;
         }
         catch (OperationCanceledException)
         {
+            CompleteActiveIdentificationSteps(
+                IdentificationStepStatus.Skipped,
+                "Analysis was cancelled.");
             StatusMessage = "Analysis cancelled.";
         }
         catch (Exception ex)
         {
+            var currentManifestStep = IdentificationSteps.FirstOrDefault(
+                item => item.Key == IdentificationStepKeys.AnalyzeManifest);
+            if (currentManifestStep?.Status == IdentificationStepStatus.Identifying)
+            {
+                UpdateIdentificationStep(Step(
+                    IdentificationStepKeys.AnalyzeManifest,
+                    8,
+                    "Analyze manifest and qualities",
+                    IdentificationStepStatus.Failed,
+                    "The selected stream could not be analyzed."));
+            }
+
+            CompleteActiveIdentificationSteps(
+                IdentificationStepStatus.Failed,
+                "This step stopped because analysis failed.");
+
             StatusMessage = ex.Message;
         }
         finally
@@ -212,6 +363,7 @@ public sealed partial class MainViewModel : ObservableObject
         EstimatedTime = "Time remaining: Calculating...";
         _operationCts = new CancellationTokenSource();
         StatusMessage = "Download started...";
+        WizardStepIndex = 3;
 
         var progress = new Progress<DownloadProgress>(UpdateProgress);
         try
@@ -229,6 +381,12 @@ public sealed partial class MainViewModel : ObservableObject
             StatusMessage = result.Succeeded
                 ? "Download completed."
                 : result.ErrorMessage ?? "Download failed.";
+            if (result.Succeeded)
+            {
+                ProgressPercentage = 100;
+                ProgressPercentageDisplay = "100%";
+                WizardStepIndex = 4;
+            }
         }
         finally
         {
@@ -269,13 +427,13 @@ public sealed partial class MainViewModel : ObservableObject
         StatusMessage = "Download resumed.";
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanCancel))]
     private void Cancel()
     {
         _operationCts?.Cancel();
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanConfigureDownload))]
     private void BrowseOutput()
     {
         // FileSavePicker requires window handle plumbing; keep path editable for this first vertical slice.
@@ -286,12 +444,18 @@ public sealed partial class MainViewModel : ObservableObject
     private void ResetDetection()
     {
         _detectedStream = null;
+        WizardStepIndex = 0;
         DetectedStreamUrl = string.Empty;
         DownloadApiUrl = string.Empty;
         RequestContextDisplay = "Request context will appear after analysis.";
+        AiDiagnostic = UseLocalAiAdvisor
+            ? "Local AI will be used only if deterministic extraction finds no stream."
+            : "Local AI diagnostics are off.";
         NetworkActivities.Clear();
+        ResetIdentificationSteps();
         AvailableQualities.Clear();
         SelectedQuality = null;
+        RefreshWizardNavigation();
         ProgressPercentage = 0;
         ProgressPercentageDisplay = "0%";
         DownloadedBytes = 0;
@@ -299,6 +463,37 @@ public sealed partial class MainViewModel : ObservableObject
         DownloadSpeed = "Speed: --";
         ElapsedTime = "Elapsed: 00:00:00";
         EstimatedTime = "Time remaining: --";
+    }
+
+    private bool TryCreateExtractionOptions(out StreamExtractionOptions options)
+    {
+        options = new StreamExtractionOptions();
+        if (!UseLocalAiAdvisor)
+        {
+            return true;
+        }
+
+        if (!Uri.TryCreate(LocalAiEndpoint, UriKind.Absolute, out var endpoint)
+            || !endpoint.IsLoopback
+            || (endpoint.Scheme != Uri.UriSchemeHttp && endpoint.Scheme != Uri.UriSchemeHttps))
+        {
+            StatusMessage = "The local AI endpoint must be a loopback HTTP address, such as http://localhost:11434.";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(LocalAiModel))
+        {
+            StatusMessage = "Enter the locally installed Ollama model name.";
+            return false;
+        }
+
+        options = new StreamExtractionOptions
+        {
+            EnableLocalAiAdvisor = true,
+            LocalAiEndpoint = endpoint,
+            LocalAiModel = LocalAiModel.Trim()
+        };
+        return true;
     }
 
     private void AddNetworkActivity(NetworkActivity activity)
@@ -311,6 +506,72 @@ public sealed partial class MainViewModel : ObservableObject
 
         NetworkActivities.Add(activity);
     }
+
+    private void ResetIdentificationSteps()
+    {
+        IdentificationSteps.Clear();
+        IdentificationSteps.Add(Step(IdentificationStepKeys.OpenPage, 1, "Open video page"));
+        IdentificationSteps.Add(Step(IdentificationStepKeys.MonitorNetwork, 2, "Monitor media network calls"));
+        IdentificationSteps.Add(Step(IdentificationStepKeys.DiscoverSeeds, 3, "Collect player and embed seed links"));
+        IdentificationSteps.Add(Step(IdentificationStepKeys.InspectPlayers, 4, "Inspect player APIs and video elements"));
+        IdentificationSteps.Add(Step(IdentificationStepKeys.ProbeSeeds, 5, "Probe discovered seed links"));
+        IdentificationSteps.Add(Step(IdentificationStepKeys.SelectCandidate, 6, "Validate and select download source"));
+        IdentificationSteps.Add(Step(IdentificationStepKeys.AiFallback, 7, "Optional local AI fallback"));
+        IdentificationSteps.Add(Step(IdentificationStepKeys.AnalyzeManifest, 8, "Analyze manifest and qualities"));
+    }
+
+    private void UpdateIdentificationStep(IdentificationStepUpdate update)
+    {
+        var existingIndex = IdentificationSteps
+            .Select((item, index) => (item, index))
+            .FirstOrDefault(pair => pair.item.Key == update.Key)
+            .index;
+
+        if (existingIndex >= 0
+            && existingIndex < IdentificationSteps.Count
+            && IdentificationSteps[existingIndex].Key == update.Key)
+        {
+            IdentificationSteps[existingIndex] = update;
+            return;
+        }
+
+        var insertAt = IdentificationSteps.TakeWhile(item => item.Order < update.Order).Count();
+        IdentificationSteps.Insert(insertAt, update);
+    }
+
+    private void CompleteActiveIdentificationSteps(IdentificationStepStatus status, string detail)
+    {
+        foreach (var active in IdentificationSteps
+                     .Where(item => item.Status == IdentificationStepStatus.Identifying)
+                     .ToArray())
+        {
+            UpdateIdentificationStep(Step(active.Key, active.Order, active.Title, status, detail));
+        }
+    }
+
+    private void RefreshWizardNavigation()
+    {
+        OnPropertyChanged(nameof(CanGoToAnalyzeStep));
+        OnPropertyChanged(nameof(CanGoToStreamStep));
+        OnPropertyChanged(nameof(CanGoToDownloadStep));
+        GoToAnalyzeStepCommand.NotifyCanExecuteChanged();
+        GoToStreamStepCommand.NotifyCanExecuteChanged();
+        GoToDownloadStepCommand.NotifyCanExecuteChanged();
+    }
+
+    private static IdentificationStepUpdate Step(
+        string key,
+        int order,
+        string title,
+        IdentificationStepStatus status = IdentificationStepStatus.Waiting,
+        string detail = "Waiting to start.") => new()
+        {
+            Key = key,
+            Order = order,
+            Title = title,
+            Status = status,
+            Detail = detail
+        };
 
     private static string BuildRequestContext(MediaStream stream)
     {

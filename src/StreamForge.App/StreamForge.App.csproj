@@ -31,6 +31,7 @@
     <LocalFfmpegPath>$(MSBuildProjectDirectory)\..\..\.tools\ffmpeg\ffmpeg.exe</LocalFfmpegPath>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="..\StreamForge.AiWorker\StreamForge.AiWorker.csproj" />
     <ProjectReference Include="..\StreamForge.Core\StreamForge.Core.csproj" />
     <ProjectReference Include="..\StreamForge.Infrastructure\StreamForge.Infrastructure.csproj" />
   </ItemGroup>

@@ -15,6 +15,7 @@ internal static class CandidateRanker
         MediaCandidateSource.JwPlayer => 80,
         MediaCandidateSource.KnownPlayer => 75,
         MediaCandidateSource.VideoElement => 70,
+        MediaCandidateSource.SeedProbe => 60,
         MediaCandidateSource.BrowserObservation => 55,
         MediaCandidateSource.ResponseContentType => 40,
         _ => 20

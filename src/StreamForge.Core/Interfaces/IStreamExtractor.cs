@@ -4,8 +4,10 @@ namespace StreamForge.Core.Interfaces;
 
 public interface IStreamExtractor
 {
-    Task<MediaStream?> ExtractAsync(
+    Task<StreamExtractionResult> ExtractAsync(
         Uri pageUrl,
+        StreamExtractionOptions options,
         IProgress<NetworkActivity>? activity,
+        IProgress<IdentificationStepUpdate>? steps,
         CancellationToken cancellationToken);
 }

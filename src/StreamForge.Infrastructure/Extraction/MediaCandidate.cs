@@ -7,6 +7,7 @@ internal enum MediaCandidateSource
     NetworkUrl,
     ResponseContentType,
     BrowserObservation,
+    SeedProbe,
     VideoElement,
     KnownPlayer,
     JwPlayer

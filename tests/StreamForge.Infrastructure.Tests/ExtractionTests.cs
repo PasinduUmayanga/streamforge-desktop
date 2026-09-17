@@ -63,6 +63,60 @@ public sealed class ExtractionTests
     }
 
     [Fact]
+    public void PlayerSeedExtractor_ParsesAndDeduplicatesPlayerLinks()
+    {
+        using var document = JsonDocument.Parse("""
+            [
+              { "url": "https://player.example.com/embed/123", "source": "EmbedElement" },
+              { "url": "https://player.example.com/embed/123", "source": "PlayerMetadata" },
+              { "url": "https://cdn.example.com/playback?id=42", "source": "PlayerMetadata" },
+              { "url": "https://cdn.example.com/poster.jpg", "source": "PlayerMetadata" },
+              { "url": "blob:https://player.example.com/id", "source": "PlayerElement" }
+            ]
+            """);
+
+        var results = PlayerSeedExtractor.Parse(document.RootElement);
+
+        Assert.Equal(2, results.Count);
+        Assert.Contains(results, seed => seed.Source == PlayerSeedSource.EmbedElement);
+        Assert.Contains(results, seed => seed.Url.AbsolutePath == "/playback");
+    }
+
+    [Fact]
+    public void SeedResponseUrlExtractor_FindsNestedEmbedAndApiLinks()
+    {
+        const string response = """
+            <iframe src="/embed/server-2"></iframe>
+            <img src="/images/poster.jpg">
+            <script>window.player = { "embed_url": "https:\/\/player.example.net\/watch\/abc" };</script>
+            """;
+
+        var results = SeedResponseUrlExtractor.Extract(
+            response,
+            new Uri("https://page.example.com/api/player"));
+
+        Assert.Equal(2, results.Count);
+        Assert.Contains(results, uri => uri.AbsoluteUri == "https://page.example.com/embed/server-2");
+        Assert.Contains(results, uri => uri.AbsoluteUri == "https://player.example.net/watch/abc");
+        Assert.DoesNotContain(results, uri => uri.AbsolutePath.EndsWith("poster.jpg", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void PlayerSeedCollector_DeduplicatesExactSeedLinks()
+    {
+        var collector = new PlayerSeedCollector();
+        var seed = new PlayerSeedLink
+        {
+            Url = new Uri("https://player.example.com/embed/123?server=one"),
+            Source = PlayerSeedSource.EmbedElement
+        };
+
+        Assert.True(collector.Add(seed));
+        Assert.False(collector.Add(seed));
+        Assert.Single(collector.Snapshot());
+    }
+
+    [Fact]
     public void KnownPlayerSourceExtractor_ParsesAndDeduplicatesSupportedSources()
     {
         using var document = JsonDocument.Parse("""

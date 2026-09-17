@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using StreamForge.App.ViewModels;
+using StreamForge.AiWorker.Advisors;
 using StreamForge.Core.Interfaces;
 using StreamForge.Infrastructure;
 using StreamForge.Infrastructure.Extraction;
@@ -50,6 +51,10 @@ public partial class App : Application
         });
 
         services.AddHttpClient<HlsStreamAnalyzer>();
+        services.AddHttpClient<IAiExtractionAdvisor, QwenCoderExtractionAdvisor>(client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(15);
+        });
         services.AddSingleton<IStreamExtractor, PlaywrightStreamExtractor>();
         services.AddSingleton<IStreamAnalyzer>(provider => provider.GetRequiredService<HlsStreamAnalyzer>());
         services.AddSingleton<IFfmpegLocator, FfmpegLocator>();

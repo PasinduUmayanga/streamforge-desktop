@@ -4,9 +4,14 @@ internal static class NetworkUrlSanitizer
 {
     public static string ForDisplay(Uri uri)
     {
+        return $"{uri.GetLeftPart(UriPartial.Path)}{RedactedQuery(uri)}";
+    }
+
+    public static string RedactedQuery(Uri uri)
+    {
         if (string.IsNullOrEmpty(uri.Query))
         {
-            return uri.GetLeftPart(UriPartial.Path);
+            return string.Empty;
         }
 
         var queryNames = uri.Query[1..]
@@ -18,8 +23,6 @@ internal static class NetworkUrlSanitizer
             .Select(name => $"{name}=<redacted>");
 
         var sanitizedQuery = string.Join('&', queryNames);
-        return string.IsNullOrEmpty(sanitizedQuery)
-            ? uri.GetLeftPart(UriPartial.Path)
-            : $"{uri.GetLeftPart(UriPartial.Path)}?{sanitizedQuery}";
+        return string.IsNullOrEmpty(sanitizedQuery) ? string.Empty : $"?{sanitizedQuery}";
     }
 }

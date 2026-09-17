@@ -8,12 +8,15 @@ using StreamForge.Core.Models;
 
 namespace StreamForge.Infrastructure.Extraction;
 
-public sealed class PlaywrightStreamExtractor(ILogger<PlaywrightStreamExtractor> logger) : IStreamExtractor
+public sealed class PlaywrightStreamExtractor(
+    ILogger<PlaywrightStreamExtractor> logger,
+    IAiExtractionAdvisor aiExtractionAdvisor) : IStreamExtractor
 {
     private static readonly TimeSpan ExtractionTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan NavigationTimeout = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan MinimumObservationTime = TimeSpan.FromSeconds(4);
     private static readonly TimeSpan BlobPlayerMinimumObservationTime = TimeSpan.FromSeconds(6);
+    private static readonly TimeSpan SeedProbeObservationTime = TimeSpan.FromSeconds(8);
     private static readonly TimeSpan NetworkSettleTime = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan InspectionInterval = TimeSpan.FromSeconds(1);
     private const string DooPlayPlayerActivationScript = """
@@ -171,18 +174,31 @@ public sealed class PlaywrightStreamExtractor(ILogger<PlaywrightStreamExtractor>
         """;
     private readonly JwPlayerExtractor _jwPlayerExtractor = new();
     private readonly KnownPlayerSourceExtractor _knownPlayerSourceExtractor = new();
+    private readonly PlayerSeedExtractor _playerSeedExtractor = new();
 
-    public async Task<MediaStream?> ExtractAsync(
+    public async Task<StreamExtractionResult> ExtractAsync(
         Uri pageUrl,
+        StreamExtractionOptions options,
         IProgress<NetworkActivity>? activity,
+        IProgress<IdentificationStepUpdate>? steps,
         CancellationToken cancellationToken)
     {
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutCts.CancelAfter(ExtractionTimeout);
 
         var candidates = new MediaCandidateCollector();
+        var seeds = new PlayerSeedCollector();
+        var diagnostics = new ExtractionDiagnosticCollector();
         var responseTasks = new ConcurrentBag<Task>();
+        var extractionTimedOut = false;
 
+        ReportStep(
+            steps,
+            IdentificationStepKeys.OpenPage,
+            1,
+            "Open video page",
+            IdentificationStepStatus.Identifying,
+            "Starting Chromium and loading the supplied page.");
         ReportActivity(activity, "PAGE", "Opening page and monitoring network activity", pageUrl, important: true);
 
         using var playwright = await Playwright.CreateAsync();
@@ -190,15 +206,23 @@ public sealed class PlaywrightStreamExtractor(ILogger<PlaywrightStreamExtractor>
         await using var context = await browser.NewContextAsync();
         await context.AddInitScriptAsync(MediaRequestCaptureScript);
 
-        context.Request += (_, request) => CaptureRequest(request, candidates, activity);
+        context.Request += (_, request) => CaptureRequest(request, candidates, seeds, activity);
         context.Response += (_, response) =>
         {
-            var responseTask = CaptureResponseAsync(response, candidates, activity);
+            var responseTask = CaptureResponseAsync(response, candidates, diagnostics, activity);
             responseTasks.Add(responseTask);
         };
 
         var page = await context.NewPageAsync();
         logger.LogInformation("Page analysis started for {PageHost}", pageUrl.Host);
+
+        ReportStep(
+            steps,
+            IdentificationStepKeys.MonitorNetwork,
+            2,
+            "Monitor media network calls",
+            IdentificationStepStatus.Identifying,
+            "Watching document, fetch, XHR, and media requests.");
 
         try
         {
@@ -207,6 +231,13 @@ public sealed class PlaywrightStreamExtractor(ILogger<PlaywrightStreamExtractor>
                 WaitUntil = WaitUntilState.DOMContentLoaded,
                 Timeout = (float)NavigationTimeout.TotalMilliseconds
             });
+            ReportStep(
+                steps,
+                IdentificationStepKeys.OpenPage,
+                1,
+                "Open video page",
+                IdentificationStepStatus.Success,
+                "The page DOM loaded successfully.");
         }
         catch (PlaywrightException exception) when (
             exception.Message.Contains("Timeout", StringComparison.OrdinalIgnoreCase)
@@ -214,7 +245,29 @@ public sealed class PlaywrightStreamExtractor(ILogger<PlaywrightStreamExtractor>
         {
             logger.LogWarning("Page navigation timed out; inspecting requests captured during loading.");
             ReportActivity(activity, "PAGE", "Navigation timed out; continuing with captured requests", pageUrl);
+            ReportStep(
+                steps,
+                IdentificationStepKeys.OpenPage,
+                1,
+                "Open video page",
+                IdentificationStepStatus.Success,
+                "Navigation timed out, but the loaded DOM and captured requests remain available.");
         }
+
+        ReportStep(
+            steps,
+            IdentificationStepKeys.DiscoverSeeds,
+            3,
+            "Collect player and embed seed links",
+            IdentificationStepStatus.Identifying,
+            "Scanning frames and player metadata for follow-up URLs.");
+        ReportStep(
+            steps,
+            IdentificationStepKeys.InspectPlayers,
+            4,
+            "Inspect player APIs and video elements",
+            IdentificationStepStatus.Identifying,
+            "Checking HTML5 video elements and supported player APIs.");
 
         var observationStarted = DateTimeOffset.UtcNow;
         var nextInspection = DateTimeOffset.MinValue;
@@ -226,7 +279,7 @@ public sealed class PlaywrightStreamExtractor(ILogger<PlaywrightStreamExtractor>
                 var now = DateTimeOffset.UtcNow;
                 if (now >= nextInspection)
                 {
-                    await InspectPlayersAsync(context, candidates, activity);
+                    await InspectPlayersAsync(context, candidates, seeds, activity);
                     nextInspection = now + InspectionInterval;
                 }
 
@@ -242,20 +295,167 @@ public sealed class PlaywrightStreamExtractor(ILogger<PlaywrightStreamExtractor>
                     break;
                 }
 
+                var seedsSettled = seeds.LastSeedAt is { } lastSeedAt
+                    && now - lastSeedAt >= NetworkSettleTime;
+                if (candidates.Count == 0
+                    && seeds.Count > 0
+                    && now - observationStarted >= SeedProbeObservationTime
+                    && seedsSettled)
+                {
+                    break;
+                }
+
                 await Task.Delay(250, timeoutCts.Token);
             }
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             // The extraction timeout is an expected no-result condition.
+            extractionTimedOut = true;
         }
 
         cancellationToken.ThrowIfCancellationRequested();
         await AwaitResponseTasksAsync(responseTasks, cancellationToken);
 
+        ReportStep(
+            steps,
+            IdentificationStepKeys.MonitorNetwork,
+            2,
+            "Monitor media network calls",
+            candidates.Count > 0 ? IdentificationStepStatus.Success : IdentificationStepStatus.Skipped,
+            candidates.Count > 0
+                ? $"Captured {candidates.Count} standard media candidate(s)."
+                : "No direct HLS, DASH, or MP4 request was captured.");
+        ReportStep(
+            steps,
+            IdentificationStepKeys.DiscoverSeeds,
+            3,
+            "Collect player and embed seed links",
+            seeds.Count > 0 ? IdentificationStepStatus.Success : IdentificationStepStatus.Skipped,
+            seeds.Count > 0
+                ? $"Collected {seeds.Count} unique player, embed, or API seed link(s)."
+                : "The page exposed no additional seed links.");
+        ReportStep(
+            steps,
+            IdentificationStepKeys.InspectPlayers,
+            4,
+            "Inspect player APIs and video elements",
+            candidates.Count > 0 || candidates.BlobPlayerObserved
+                ? IdentificationStepStatus.Success
+                : IdentificationStepStatus.Skipped,
+            candidates.BlobPlayerObserved
+                ? "A blob-backed player was found; its underlying requests and seed links were inspected."
+                : candidates.Count > 0
+                    ? "Player inspection exposed one or more standard media candidates."
+                    : "No supported player API exposed a direct media source.");
+
+        var candidatesBeforeSeedProbe = candidates.Count;
+        if (candidates.Count == 0 && seeds.Count > 0)
+        {
+            ReportStep(
+                steps,
+                IdentificationStepKeys.ProbeSeeds,
+                5,
+                "Probe discovered seed links",
+                IdentificationStepStatus.Identifying,
+                "Following a bounded set of likely player and API links.");
+            await ProbeSeedLinksAsync(context, seeds, candidates, diagnostics, activity, cancellationToken);
+            ReportStep(
+                steps,
+                IdentificationStepKeys.ProbeSeeds,
+                5,
+                "Probe discovered seed links",
+                candidates.Count > candidatesBeforeSeedProbe
+                    ? IdentificationStepStatus.Success
+                    : IdentificationStepStatus.Skipped,
+                candidates.Count > candidatesBeforeSeedProbe
+                    ? $"Seed probing discovered {candidates.Count - candidatesBeforeSeedProbe} media candidate(s)."
+                    : "Seed links were checked, but none produced a supported media source.");
+        }
+        else
+        {
+            ReportStep(
+                steps,
+                IdentificationStepKeys.ProbeSeeds,
+                5,
+                "Probe discovered seed links",
+                IdentificationStepStatus.Skipped,
+                candidates.Count > 0
+                    ? "A direct media candidate was already available."
+                    : "No seed links were available to probe.");
+        }
+
+        ReportStep(
+            steps,
+            IdentificationStepKeys.SelectCandidate,
+            6,
+            "Validate and select download source",
+            IdentificationStepStatus.Identifying,
+            "Ranking detected media candidates and rejecting unsupported results.");
         var best = CandidateRanker.ChooseBest(candidates.Snapshot());
+        var extractionDiagnostics = diagnostics.CreateDiagnostics(candidates.BlobPlayerObserved, extractionTimedOut);
+        AiExtractionSuggestion? aiSuggestion = null;
+        var aiAdvisorAttempted = options.EnableLocalAiAdvisor && extractionDiagnostics.Responses.Count > 0;
+
+        if (best is null && aiAdvisorAttempted)
+        {
+            ReportStep(
+                steps,
+                IdentificationStepKeys.AiFallback,
+                7,
+                "Optional local AI fallback",
+                IdentificationStepStatus.Identifying,
+                "Classifying sanitized response structures with the configured local model.");
+            activity?.Report(new NetworkActivity
+            {
+                Category = "AI",
+                Message = "Asking the local AI advisor to classify sanitized response structures",
+                IsImportant = true
+            });
+
+            aiSuggestion = await aiExtractionAdvisor.AdviseAsync(extractionDiagnostics, options, cancellationToken);
+            if (aiSuggestion is not null)
+            {
+                best = await ValidateAiSuggestionAsync(
+                    context,
+                    diagnostics,
+                    aiSuggestion,
+                    activity,
+                    cancellationToken);
+            }
+
+            ReportStep(
+                steps,
+                IdentificationStepKeys.AiFallback,
+                7,
+                "Optional local AI fallback",
+                best is not null ? IdentificationStepStatus.Success : IdentificationStepStatus.Skipped,
+                best is not null
+                    ? "A model suggestion passed deterministic media validation."
+                    : "The local model produced no candidate that passed deterministic validation.");
+        }
+        else
+        {
+            ReportStep(
+                steps,
+                IdentificationStepKeys.AiFallback,
+                7,
+                "Optional local AI fallback",
+                IdentificationStepStatus.Skipped,
+                options.EnableLocalAiAdvisor
+                    ? "No suitable sanitized response structure required AI classification."
+                    : "Local AI diagnostics are disabled.");
+        }
+
         if (best is null)
         {
+            ReportStep(
+                steps,
+                IdentificationStepKeys.SelectCandidate,
+                6,
+                "Validate and select download source",
+                IdentificationStepStatus.Failed,
+                "No supported, verifiable, non-DRM media source was found.");
             if (candidates.BlobPlayerObserved)
             {
                 logger.LogInformation("A blob-backed player was detected, but no underlying HTTP media stream was found.");
@@ -265,13 +465,30 @@ public sealed class PlaywrightStreamExtractor(ILogger<PlaywrightStreamExtractor>
                 logger.LogInformation("No supported media stream was detected.");
             }
 
-            return null;
+            var failureReason = extractionDiagnostics.FailureReason;
+            return new StreamExtractionResult
+            {
+                FailureReason = failureReason,
+                Message = CreateFailureMessage(failureReason),
+                AiAdvisorUsed = aiAdvisorAttempted,
+                AiDiagnostic = aiAdvisorAttempted
+                    ? aiSuggestion?.Explanation ?? "The local AI advisor was unavailable or found no verifiable media candidate."
+                    : null
+            };
         }
 
         logger.LogInformation(
             "Detected media type {MediaType} from {DetectionSource}",
             best.Type,
             best.Source);
+
+        ReportStep(
+            steps,
+            IdentificationStepKeys.SelectCandidate,
+            6,
+            "Validate and select download source",
+            IdentificationStepStatus.Success,
+            $"Selected a {best.Type} source detected through {best.Source}.");
 
         ReportActivity(
             activity,
@@ -281,7 +498,16 @@ public sealed class PlaywrightStreamExtractor(ILogger<PlaywrightStreamExtractor>
             best.Status,
             important: true);
 
-        return CreateMediaStream(best);
+        return new StreamExtractionResult
+        {
+            Stream = CreateMediaStream(best),
+            FailureReason = AnalysisFailureReason.None,
+            Message = aiSuggestion is null
+                ? $"Detected {best.Type} stream."
+                : $"Detected {best.Type} stream after deterministic validation of a local AI suggestion.",
+            AiAdvisorUsed = aiSuggestion is not null,
+            AiDiagnostic = aiSuggestion?.Explanation
+        };
     }
 
     private async Task<IBrowser> LaunchChromiumAsync(
@@ -322,6 +548,7 @@ public sealed class PlaywrightStreamExtractor(ILogger<PlaywrightStreamExtractor>
     private static void CaptureRequest(
         IRequest request,
         MediaCandidateCollector candidates,
+        PlayerSeedCollector seeds,
         IProgress<NetworkActivity>? activity)
     {
         if (!Uri.TryCreate(request.Url, UriKind.Absolute, out var requestUri)
@@ -343,6 +570,24 @@ public sealed class PlaywrightStreamExtractor(ILogger<PlaywrightStreamExtractor>
 
         if (type == MediaSourceType.Unknown)
         {
+            if ((request.ResourceType.Equals("xhr", StringComparison.OrdinalIgnoreCase)
+                    || request.ResourceType.Equals("fetch", StringComparison.OrdinalIgnoreCase))
+                && request.Method.Equals("GET", StringComparison.OrdinalIgnoreCase)
+                && IsLikelyPlayerApiSeed(requestUri))
+            {
+                var added = seeds.Add(new PlayerSeedLink
+                {
+                    Url = requestUri,
+                    Source = PlayerSeedSource.NetworkApi,
+                    Headers = HeaderSanitizer.Filter(request.Headers),
+                    FrameUrl = request.Frame.Url
+                });
+                if (added)
+                {
+                    ReportActivity(activity, "SEED", "Collected likely player API link", requestUri);
+                }
+            }
+
             return;
         }
 
@@ -360,6 +605,7 @@ public sealed class PlaywrightStreamExtractor(ILogger<PlaywrightStreamExtractor>
     private static async Task CaptureResponseAsync(
         IResponse response,
         MediaCandidateCollector candidates,
+        ExtractionDiagnosticCollector diagnostics,
         IProgress<NetworkActivity>? activity)
     {
         try
@@ -370,11 +616,23 @@ public sealed class PlaywrightStreamExtractor(ILogger<PlaywrightStreamExtractor>
                 return;
             }
 
+            diagnostics.ObserveResponse(
+                responseUri,
+                response.Status,
+                response.Request.ResourceType,
+                response.Headers);
+
             var contentType = GetHeader(response.Headers, "content-type");
             var type = MediaTypeDetector.Detect(responseUri, contentType);
             if (type == MediaSourceType.Unknown)
             {
-                await CaptureEmbeddedApiMediaAsync(response, responseUri, contentType, candidates, activity);
+                await CaptureEmbeddedApiMediaAsync(
+                    response,
+                    responseUri,
+                    contentType,
+                    candidates,
+                    diagnostics,
+                    activity);
                 return;
             }
 
@@ -427,6 +685,7 @@ public sealed class PlaywrightStreamExtractor(ILogger<PlaywrightStreamExtractor>
         Uri responseUri,
         string? contentType,
         MediaCandidateCollector candidates,
+        ExtractionDiagnosticCollector diagnostics,
         IProgress<NetworkActivity>? activity)
     {
         if (!response.Ok
@@ -446,13 +705,23 @@ public sealed class PlaywrightStreamExtractor(ILogger<PlaywrightStreamExtractor>
             return;
         }
 
+        var allRequestHeaders = await response.Request.AllHeadersAsync();
+        diagnostics.ObserveInspectableResponse(
+            responseUri,
+            response.Request.Method,
+            response.Status,
+            response.Request.ResourceType,
+            contentType,
+            responseBody,
+            allRequestHeaders);
+
         var mediaUrls = EmbeddedMediaUrlExtractor.Extract(responseBody, responseUri);
         if (mediaUrls.Count == 0)
         {
             return;
         }
 
-        var requestHeaders = HeaderSanitizer.Filter(await response.Request.AllHeadersAsync());
+        var requestHeaders = HeaderSanitizer.Filter(allRequestHeaders);
         foreach (var mediaUrl in mediaUrls)
         {
             var mediaType = MediaTypeDetector.Detect(mediaUrl);
@@ -484,6 +753,17 @@ public sealed class PlaywrightStreamExtractor(ILogger<PlaywrightStreamExtractor>
             || resourceType.Equals("fetch", StringComparison.OrdinalIgnoreCase);
     }
 
+    private static bool IsLikelyPlayerApiSeed(Uri uri)
+    {
+        var value = $"{uri.Host}{uri.AbsolutePath}";
+        string[] indicators =
+        [
+            "player", "video", "stream", "source", "embed", "episode", "playback",
+            "manifest", "playlist", "ajax", "/api/"
+        ];
+        return indicators.Any(indicator => value.Contains(indicator, StringComparison.OrdinalIgnoreCase));
+    }
+
     private static bool IsInspectableTextResponse(
         string? contentType,
         IReadOnlyDictionary<string, string> headers)
@@ -503,13 +783,14 @@ public sealed class PlaywrightStreamExtractor(ILogger<PlaywrightStreamExtractor>
     private async Task InspectPlayersAsync(
         IBrowserContext context,
         MediaCandidateCollector candidates,
+        PlayerSeedCollector seeds,
         IProgress<NetworkActivity>? activity)
     {
         foreach (var page in context.Pages)
         {
             foreach (var frame in page.Frames)
             {
-                await InspectFrameAsync(frame, candidates, activity);
+                await InspectFrameAsync(frame, candidates, seeds, activity);
             }
         }
     }
@@ -517,6 +798,7 @@ public sealed class PlaywrightStreamExtractor(ILogger<PlaywrightStreamExtractor>
     private async Task InspectFrameAsync(
         IFrame frame,
         MediaCandidateCollector candidates,
+        PlayerSeedCollector seeds,
         IProgress<NetworkActivity>? activity)
     {
         if (frame.IsDetached)
@@ -531,6 +813,13 @@ public sealed class PlaywrightStreamExtractor(ILogger<PlaywrightStreamExtractor>
             {
                 if (Uri.TryCreate(embed, UriKind.Absolute, out var embedUri) && IsHttpUri(embedUri))
                 {
+                    seeds.Add(new PlayerSeedLink
+                    {
+                        Url = embedUri,
+                        Source = PlayerSeedSource.EmbedElement,
+                        Headers = CreateFrameHeaders(frame.Url, null),
+                        FrameUrl = frame.Url
+                    });
                     ReportActivity(
                         activity,
                         "PLAYER",
@@ -596,6 +885,42 @@ public sealed class PlaywrightStreamExtractor(ILogger<PlaywrightStreamExtractor>
                 ? userAgentElement.GetString()
                 : null;
             var frameHeaders = CreateFrameHeaders(frame.Url, userAgent);
+
+            foreach (var discoveredSeed in await _playerSeedExtractor.ExtractAsync(frame))
+            {
+                var added = seeds.Add(new PlayerSeedLink
+                {
+                    Url = discoveredSeed.Url,
+                    Source = discoveredSeed.Source,
+                    Headers = frameHeaders,
+                    FrameUrl = frame.Url
+                });
+                if (!added)
+                {
+                    continue;
+                }
+
+                var seedType = MediaTypeDetector.Detect(discoveredSeed.Url);
+                if (seedType != MediaSourceType.Unknown)
+                {
+                    candidates.Add(new MediaCandidate
+                    {
+                        Url = discoveredSeed.Url,
+                        Type = seedType,
+                        Source = MediaCandidateSource.BrowserObservation,
+                        Headers = frameHeaders,
+                        ResourceType = "player-seed",
+                        FrameUrl = frame.Url
+                    });
+                }
+
+                ReportActivity(
+                    activity,
+                    "SEED",
+                    $"Collected {discoveredSeed.Source} link",
+                    discoveredSeed.Url,
+                    important: seedType != MediaSourceType.Unknown);
+            }
 
             foreach (var source in await _knownPlayerSourceExtractor.ExtractAsync(frame))
             {
@@ -676,6 +1001,373 @@ public sealed class PlaywrightStreamExtractor(ILogger<PlaywrightStreamExtractor>
             // Frames can navigate or detach while their player is being inspected.
         }
     }
+
+    private static async Task ProbeSeedLinksAsync(
+        IBrowserContext context,
+        PlayerSeedCollector seeds,
+        MediaCandidateCollector candidates,
+        ExtractionDiagnosticCollector diagnostics,
+        IProgress<NetworkActivity>? activity,
+        CancellationToken cancellationToken)
+    {
+        const int maximumProbes = 8;
+        using var probeCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        probeCts.CancelAfter(TimeSpan.FromSeconds(12));
+
+        var initialSeeds = seeds.Snapshot()
+            .Where(seed => MediaTypeDetector.Detect(seed.Url) == MediaSourceType.Unknown)
+            .Take(maximumProbes)
+            .ToArray();
+        var queue = new Queue<PlayerSeedLink>(initialSeeds);
+        var queuedUrls = new HashSet<string>(initialSeeds.Select(seed => seed.Url.AbsoluteUri), StringComparer.Ordinal);
+        var probes = 0;
+
+        while (queue.Count > 0 && probes < maximumProbes && !probeCts.IsCancellationRequested)
+        {
+            var seed = queue.Dequeue();
+            probes++;
+            IAPIResponse? response = null;
+            try
+            {
+                var probeHeaders = CreateSeedProbeHeaders(seed.Headers);
+                response = await context.APIRequest.GetAsync(seed.Url.AbsoluteUri, new APIRequestContextOptions
+                {
+                    Headers = probeHeaders,
+                    Timeout = 4_000
+                });
+
+                var responseUri = Uri.TryCreate(response.Url, UriKind.Absolute, out var redirectedUri)
+                    ? redirectedUri
+                    : seed.Url;
+                ReportActivity(
+                    activity,
+                    "SEED",
+                    response.Ok ? "Probed player seed link" : "Seed link returned an error",
+                    responseUri,
+                    response.Status,
+                    important: response.Ok);
+
+                if (!response.Ok)
+                {
+                    continue;
+                }
+
+                var contentType = GetHeader(response.Headers, "content-type");
+                var detectedType = MediaTypeDetector.DetectContentType(contentType);
+                var canReadBody = !long.TryParse(GetHeader(response.Headers, "content-length"), out var contentLength)
+                    || contentLength <= 1_000_000;
+                byte[]? body = null;
+                string? bodyText = null;
+                if (canReadBody && IsInspectableSeedResponse(contentType, detectedType))
+                {
+                    body = await response.BodyAsync();
+                    detectedType = detectedType == MediaSourceType.Unknown
+                        ? DetectMediaBody(body)
+                        : detectedType;
+                    bodyText = System.Text.Encoding.UTF8.GetString(
+                        body.AsSpan(0, Math.Min(body.Length, 1_000_000)));
+                }
+
+                if (detectedType != MediaSourceType.Unknown)
+                {
+                    if (body is not null
+                        && detectedType is MediaSourceType.Hls or MediaSourceType.Dash
+                        && ContainsDrmIndicator(body))
+                    {
+                        activity?.Report(new NetworkActivity
+                        {
+                            Category = "DRM",
+                            Message = "A DRM-marked seed response was rejected",
+                            DisplayUrl = NetworkUrlSanitizer.ForDisplay(responseUri),
+                            IsImportant = true
+                        });
+                        continue;
+                    }
+
+                    candidates.Add(new MediaCandidate
+                    {
+                        Url = responseUri,
+                        Type = detectedType,
+                        Source = MediaCandidateSource.SeedProbe,
+                        Headers = HeaderSanitizer.Filter(seed.Headers),
+                        ResourceType = "seed-probe",
+                        ContentType = contentType,
+                        Status = response.Status,
+                        IsMasterPlaylist = detectedType == MediaSourceType.Hls
+                            && bodyText?.Contains("#EXT-X-STREAM-INF", StringComparison.OrdinalIgnoreCase) == true,
+                        FrameUrl = seed.FrameUrl
+                    });
+                    continue;
+                }
+
+                if (string.IsNullOrWhiteSpace(bodyText))
+                {
+                    continue;
+                }
+
+                diagnostics.ObserveInspectableResponse(
+                    responseUri,
+                    "GET",
+                    response.Status,
+                    "seed-probe",
+                    contentType,
+                    bodyText,
+                    seed.Headers);
+
+                foreach (var mediaUrl in EmbeddedMediaUrlExtractor.Extract(bodyText, responseUri))
+                {
+                    var mediaType = MediaTypeDetector.Detect(mediaUrl);
+                    candidates.Add(new MediaCandidate
+                    {
+                        Url = mediaUrl,
+                        Type = mediaType,
+                        Source = MediaCandidateSource.SeedProbe,
+                        Headers = HeaderSanitizer.Filter(seed.Headers),
+                        ResourceType = "seed-response",
+                        Status = response.Status,
+                        FrameUrl = seed.FrameUrl ?? responseUri.AbsoluteUri
+                    });
+                    ReportActivity(
+                        activity,
+                        "CANDIDATE",
+                        $"Found {mediaType} URL through a seed response",
+                        mediaUrl,
+                        response.Status,
+                        important: true);
+                }
+
+                if (seed.Depth >= 1)
+                {
+                    continue;
+                }
+
+                foreach (var nestedUrl in SeedResponseUrlExtractor.Extract(bodyText, responseUri))
+                {
+                    var nestedSeed = new PlayerSeedLink
+                    {
+                        Url = nestedUrl,
+                        Source = PlayerSeedSource.SeedResponse,
+                        Headers = seed.Headers,
+                        FrameUrl = seed.FrameUrl ?? responseUri.AbsoluteUri,
+                        Depth = seed.Depth + 1
+                    };
+                    if (seeds.Add(nestedSeed)
+                        && queuedUrls.Add(nestedUrl.AbsoluteUri)
+                        && queue.Count + probes < maximumProbes)
+                    {
+                        queue.Enqueue(nestedSeed);
+                        ReportActivity(
+                            activity,
+                            "SEED",
+                            "Collected nested player link from seed response",
+                            nestedUrl);
+                    }
+                }
+            }
+            catch (PlaywrightException)
+            {
+                // A seed can expire, redirect unexpectedly, or reject an independent probe.
+            }
+            finally
+            {
+                if (response is not null)
+                {
+                    await response.DisposeAsync();
+                }
+            }
+        }
+    }
+
+    private static Dictionary<string, string> CreateSeedProbeHeaders(IReadOnlyDictionary<string, string> source)
+    {
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Accept"] = "application/json, text/html, application/vnd.apple.mpegurl, application/dash+xml, video/mp4, */*",
+            ["Range"] = "bytes=0-999999"
+        };
+        foreach (var name in new[] { "user-agent", "referer", "origin" })
+        {
+            var value = GetHeader(source, name);
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                headers[name] = value;
+            }
+        }
+
+        return headers;
+    }
+
+    private static bool IsInspectableSeedResponse(string? contentType, MediaSourceType detectedType)
+    {
+        return detectedType != MediaSourceType.Mp4
+            && (string.IsNullOrWhiteSpace(contentType)
+                || contentType.Contains("json", StringComparison.OrdinalIgnoreCase)
+                || contentType.Contains("text", StringComparison.OrdinalIgnoreCase)
+                || contentType.Contains("xml", StringComparison.OrdinalIgnoreCase)
+                || contentType.Contains("mpegurl", StringComparison.OrdinalIgnoreCase)
+                || contentType.Contains("octet-stream", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static async Task<MediaCandidate?> ValidateAiSuggestionAsync(
+        IBrowserContext context,
+        ExtractionDiagnosticCollector diagnostics,
+        AiExtractionSuggestion suggestion,
+        IProgress<NetworkActivity>? activity,
+        CancellationToken cancellationToken)
+    {
+        const double minimumConfidence = 0.65;
+        if (suggestion.Confidence < minimumConfidence
+            || suggestion.ExpectedType == MediaSourceType.Unknown
+            || string.IsNullOrWhiteSpace(suggestion.JsonPointer)
+            || !diagnostics.TryResolveUrl(
+                suggestion.ObservationId,
+                suggestion.JsonPointer,
+                out var candidateUrl,
+                out var requestHeaders,
+                out var responseUrl)
+            || candidateUrl is null
+            || !IsHttpUri(candidateUrl))
+        {
+            return null;
+        }
+
+        IAPIResponse? probe = null;
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            probe = await context.APIRequest.GetAsync(candidateUrl.AbsoluteUri, new APIRequestContextOptions
+            {
+                Headers = new Dictionary<string, string>
+                {
+                    ["Accept"] = "application/vnd.apple.mpegurl, application/dash+xml, video/mp4, */*",
+                    ["Range"] = "bytes=0-65535"
+                },
+                Timeout = 8_000
+            });
+
+            if (!probe.Ok)
+            {
+                return null;
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            var contentType = GetHeader(probe.Headers, "content-type");
+            var contentTypeMedia = MediaTypeDetector.DetectContentType(contentType);
+            if (long.TryParse(GetHeader(probe.Headers, "content-length"), out var contentLength)
+                && contentLength > 1_000_000)
+            {
+                return null;
+            }
+
+            var probeBody = await probe.BodyAsync();
+            var bodyMedia = DetectMediaBody(probeBody);
+            var detectedType = bodyMedia != MediaSourceType.Unknown ? bodyMedia : contentTypeMedia;
+            if (detectedType == MediaSourceType.Unknown || detectedType != suggestion.ExpectedType)
+            {
+                return null;
+            }
+
+            if (detectedType is MediaSourceType.Hls or MediaSourceType.Dash
+                && ContainsDrmIndicator(probeBody))
+            {
+                activity?.Report(new NetworkActivity
+                {
+                    Category = "DRM",
+                    Message = "The AI-suggested manifest contains a DRM indicator and was rejected",
+                    IsImportant = true
+                });
+                return null;
+            }
+
+            ReportActivity(
+                activity,
+                "AI",
+                $"Local AI suggestion confirmed as {detectedType} by a media probe",
+                candidateUrl,
+                probe.Status,
+                important: true);
+
+            return new MediaCandidate
+            {
+                Url = candidateUrl,
+                Type = detectedType,
+                Source = MediaCandidateSource.BrowserObservation,
+                Headers = requestHeaders,
+                ResourceType = "ai-advised",
+                ContentType = contentType,
+                Status = probe.Status,
+                IsMasterPlaylist = detectedType == MediaSourceType.Hls
+                    && System.Text.Encoding.UTF8.GetString(probeBody)
+                        .Contains("#EXT-X-STREAM-INF", StringComparison.OrdinalIgnoreCase),
+                FrameUrl = responseUrl?.AbsoluteUri
+            };
+        }
+        catch (PlaywrightException)
+        {
+            return null;
+        }
+        finally
+        {
+            if (probe is not null)
+            {
+                await probe.DisposeAsync();
+            }
+        }
+    }
+
+    private static MediaSourceType DetectMediaBody(byte[] body)
+    {
+        if (body.Length >= 8
+            && body[4] == (byte)'f'
+            && body[5] == (byte)'t'
+            && body[6] == (byte)'y'
+            && body[7] == (byte)'p')
+        {
+            return MediaSourceType.Mp4;
+        }
+
+        var text = System.Text.Encoding.UTF8.GetString(body.AsSpan(0, Math.Min(body.Length, 65_536)));
+        if (text.TrimStart().StartsWith("#EXTM3U", StringComparison.OrdinalIgnoreCase))
+        {
+            return MediaSourceType.Hls;
+        }
+
+        return text.Contains("<MPD", StringComparison.OrdinalIgnoreCase)
+            ? MediaSourceType.Dash
+            : MediaSourceType.Unknown;
+    }
+
+    private static bool ContainsDrmIndicator(byte[] body)
+    {
+        var text = System.Text.Encoding.UTF8.GetString(body.AsSpan(0, Math.Min(body.Length, 1_000_000)));
+        string[] indicators =
+        [
+            "com.widevine.alpha",
+            "com.microsoft.playready",
+            "skd://",
+            "urn:mpeg:dash:mp4protection",
+            "SAMPLE-AES"
+        ];
+
+        return indicators.Any(indicator => text.Contains(indicator, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string CreateFailureMessage(AnalysisFailureReason reason) => reason switch
+    {
+        AnalysisFailureReason.AuthenticationRequired =>
+            "The page or media endpoint requires an authenticated browser session. StreamForge does not bypass sign-in.",
+        AnalysisFailureReason.BotChallenge =>
+            "The site presented a bot challenge. StreamForge does not automate CAPTCHA or challenge bypasses.",
+        AnalysisFailureReason.AuthorizationExpired =>
+            "A media or player request was forbidden, possibly because its short-lived authorization expired. Retry analysis while the page is active.",
+        AnalysisFailureReason.DrmProtected =>
+            "This stream appears to use DRM protection and cannot be processed by StreamForge.",
+        AnalysisFailureReason.UnsupportedProtocol =>
+            "A blob-backed player was found, but no supported underlying HLS, DASH, or MP4 source was exposed.",
+        AnalysisFailureReason.Timeout =>
+            "Analysis timed out before a supported media stream was detected.",
+        _ => "No supported media stream was detected."
+    };
 
     private static void AddPlayerCandidate(
         string url,
@@ -775,6 +1467,24 @@ public sealed class PlaywrightStreamExtractor(ILogger<PlaywrightStreamExtractor>
             DisplayUrl = NetworkUrlSanitizer.ForDisplay(url),
             StatusCode = statusCode,
             IsImportant = important
+        });
+    }
+
+    private static void ReportStep(
+        IProgress<IdentificationStepUpdate>? steps,
+        string key,
+        int order,
+        string title,
+        IdentificationStepStatus status,
+        string detail)
+    {
+        steps?.Report(new IdentificationStepUpdate
+        {
+            Key = key,
+            Order = order,
+            Title = title,
+            Status = status,
+            Detail = detail
         });
     }
 

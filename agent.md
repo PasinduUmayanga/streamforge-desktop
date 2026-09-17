@@ -15,6 +15,21 @@ Do not add:
 - hard-coded signed URLs or site secrets; or
 - logging of private session values.
 
+## Local AI updates
+
+The optional local AI advisor is a Qwen3-Coder-Next classifier, not an authority or execution engine. Keep AI provider code in `StreamForge.AiWorker`; deterministic extraction and player identification belong in `StreamForge.Infrastructure`. Preserve these boundaries:
+
+1. Keep the feature disabled by default and restrict runtime endpoints to loopback addresses.
+2. Send only bounded structural metadata. Alias hosts and remove cookies, authorization data, query values, ordinary JSON string values, titles, and response bodies.
+3. Require schema-constrained output that references an exact captured observation and JSON pointer.
+4. Resolve the original value only in memory, then validate its scheme, HTTP response, media type, and DRM status deterministically.
+5. Never execute model-generated JavaScript, commands, request headers, authentication actions, CAPTCHA actions, URLs, or decryption instructions.
+6. Treat missing Ollama, missing models, timeouts, malformed JSON, and low confidence as ordinary no-result conditions.
+7. Use fake model responses in automated tests. Do not install, download, cache, or run language models in CI.
+8. Keep model names configurable and document that model licenses and hardware requirements vary.
+
+AI must not be used to claim support for authenticated, challenge-protected, encrypted, or private-protocol sources that deterministic validation cannot process.
+
 Reject unsupported DRM sources with a clear user-facing message.
 
 ## Architecture
@@ -23,7 +38,8 @@ Keep the existing project boundaries:
 
 - `StreamForge.App`: WinUI presentation, binding, commands, and dependency registration.
 - `StreamForge.Core`: models, exceptions, and implementation-independent interfaces.
-- `StreamForge.Infrastructure`: Playwright extraction, HTTP analysis, FFmpeg execution, and operating-system integrations.
+- `StreamForge.AiWorker`: optional local Qwen/Ollama AI advisor implementation.
+- `StreamForge.Infrastructure`: Playwright extraction, deterministic player identification, HTTP analysis, FFmpeg execution, and operating-system integrations.
 - `tests`: deterministic tests and local fixtures.
 
 Views and code-behind must not perform media extraction, playlist parsing, network orchestration, or FFmpeg process management. ViewModels may orchestrate interfaces but should not depend on implementation details.
@@ -44,6 +60,16 @@ When extending media detection:
 8. Bound response-body inspection by content type and size.
 9. Handle frame navigation, detachment, timeout, and cancellation without crashing.
 10. Rank real media responses and player-observed sources above speculative page URLs.
+
+When adding seed-link discovery:
+
+- collect only HTTP(S) links exposed by the current page, frames, player metadata, or relevant observed GET requests;
+- exclude static assets, advertisements, duplicate links, credentials, and unsupported schemes;
+- cap link count, recursion depth, response size, per-request timeout, and total probe time;
+- never replay POST bodies or generate guessed endpoints;
+- use the active browser context for ordinary authorized cookies without exporting them to logs or the UI;
+- require a standard media content type, manifest/body signature, or explicit supported media URL before creating a candidate; and
+- reject DRM indicators before ranking a seed-derived candidate.
 
 Do not add a production dependency on a specific external streaming website. Live pages may be used for manual diagnosis, but automated tests must use local fixtures and synthetic data.
 

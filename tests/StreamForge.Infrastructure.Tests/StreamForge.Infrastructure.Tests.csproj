@@ -4,6 +4,7 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\src\StreamForge.AiWorker\StreamForge.AiWorker.csproj" />
     <ProjectReference Include="..\..\src\StreamForge.Infrastructure\StreamForge.Infrastructure.csproj" />
   </ItemGroup>
   <ItemGroup>
