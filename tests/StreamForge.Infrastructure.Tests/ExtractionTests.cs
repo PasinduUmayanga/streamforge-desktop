@@ -1,4 +1,6 @@
 using StreamForge.Infrastructure.Extraction;
+using Microsoft.Extensions.Logging.Abstractions;
+using StreamForge.Core.Interfaces;
 using StreamForge.Core.Models;
 using System.Text.Json;
 
@@ -6,6 +8,32 @@ namespace StreamForge.Infrastructure.Tests;
 
 public sealed class ExtractionTests
 {
+    [Fact]
+    public async Task ExtractAsync_UsesDirectSignedHlsUrlWithoutBrowserPageAnalysis()
+    {
+        var extractor = new PlaywrightStreamExtractor(
+            NullLogger<PlaywrightStreamExtractor>.Instance,
+            new NoopAiExtractionAdvisor());
+        var signedUrl = new Uri("https://cdn.example.com/cdn/hls/abc/master.m3u8?md5=secret&expires=1789643664");
+        var steps = new List<IdentificationStepUpdate>();
+        var activities = new List<NetworkActivity>();
+
+        var result = await extractor.ExtractAsync(
+            signedUrl,
+            new StreamExtractionOptions(),
+            new Progress<NetworkActivity>(activities.Add),
+            new Progress<IdentificationStepUpdate>(steps.Add),
+            CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(MediaSourceType.Hls, result.Stream!.Type);
+        Assert.Equal(signedUrl.AbsoluteUri, result.Stream.Url.AbsoluteUri);
+        Assert.Contains(steps, step =>
+            step.Key == IdentificationStepKeys.SelectCandidate
+            && step.Status == IdentificationStepStatus.Success);
+        Assert.Contains(activities, activity => activity.Category == "DIRECT");
+    }
+
     [Fact]
     public void HeaderSanitizer_RemovesSensitiveHeaders()
     {
@@ -338,5 +366,13 @@ public sealed class ExtractionTests
             Source = source,
             Status = 200
         };
+    }
+
+    private sealed class NoopAiExtractionAdvisor : IAiExtractionAdvisor
+    {
+        public Task<AiExtractionSuggestion?> AdviseAsync(
+            ExtractionDiagnostics diagnostics,
+            StreamExtractionOptions options,
+            CancellationToken cancellationToken) => Task.FromResult<AiExtractionSuggestion?>(null);
     }
 }

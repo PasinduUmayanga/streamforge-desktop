@@ -12,7 +12,13 @@ public static class FfmpegArgumentBuilder
         {
             "-progress",
             "pipe:1",
-            "-nostats"
+            "-nostats",
+            "-reconnect",
+            "1",
+            "-reconnect_streamed",
+            "1",
+            "-reconnect_delay_max",
+            "5"
         };
 
         if (!string.IsNullOrWhiteSpace(stream.UserAgent))

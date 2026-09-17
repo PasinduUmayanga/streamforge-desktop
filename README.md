@@ -7,7 +7,7 @@
 [![MVVM Toolkit](https://img.shields.io/nuget/v/CommunityToolkit.Mvvm?label=MVVM%20Toolkit)](https://www.nuget.org/packages/CommunityToolkit.Mvvm)
 [![xUnit](https://img.shields.io/nuget/v/xunit?label=xUnit)](https://www.nuget.org/packages/xunit)
 
-StreamForge is a Windows desktop application that detects authorized, non-DRM media streams used by supported video pages and remuxes them into local MP4 files with FFmpeg.
+StreamForge is a Windows desktop application that detects authorized, non-DRM media streams used by supported video pages, or accepts direct HLS/DASH/MP4 media URLs, and remuxes them into local MP4 files with FFmpeg.
 
 Only download media that you own or are authorized to save. StreamForge does not implement DRM circumvention, key extraction, paywall bypass, or authentication bypass.
 
@@ -23,6 +23,7 @@ Only download media that you own or are authorized to save. StreamForge does not
 - Detection from request URLs, response content types, textual API responses, performance entries, player APIs, and HTML media elements.
 - Dynamic iframe and DooPlay-style server discovery.
 - Bounded discovery and probing of player, iframe, metadata, and likely GET API seed links.
+- Direct HLS `.m3u8`, MPEG-DASH `.mpd`, and `.mp4` URLs can be analyzed without browser page loading.
 - HLS `.m3u8`, MPEG-DASH `.mpd`, and direct `.mp4` source detection.
 - HLS master-playlist parsing with relative URL resolution and quality selection.
 - FFmpeg remuxing with the detected User-Agent, Referer, and Origin context.
@@ -79,9 +80,9 @@ Ollama and model files are optional external dependencies. They are not automati
 ## Application flow
 
 ```text
-Step 1: paste video page URL and configure optional local AI
+Step 1: paste video page URL or direct media URL and configure optional local AI
       ↓
-Step 2: watch analysis progress, identification steps, and network calls
+Step 2: watch analysis progress with identification steps and network calls side by side
       ↓
 Playwright loads the page and observes requests
       ↓
@@ -97,11 +98,13 @@ Step 3: HLS qualities are analyzed and selected
       ↓
 Step 4: user confirms output path and starts FFmpeg
       ↓
+Step 5: download progress, pause, resume, and cancel controls
+      ↓
 FFmpeg downloads/remuxes the stream
       ↓
 Progress, speed, elapsed time, and remaining time are displayed
       ↓
-Step 5: completed local MP4 output
+Local MP4 output
 ```
 
 ## Repository structure
@@ -207,12 +210,11 @@ dotnet run --project src\StreamForge.App\StreamForge.App.csproj
 
 Then:
 
-1. Use **Step 1: Setup** to paste a supported video-page URL and configure optional local AI diagnostics.
-2. Use **Step 2: Progress** to watch identification steps and relevant network calls while analysis runs.
-3. Use **Step 3: Select** to review the detected source, request context, and quality.
-4. Use **Step 4: Download** to confirm the MP4 path and start FFmpeg.
-4. Use **Pause**, **Resume**, or **Cancel** when necessary.
-5. Review the finished output in **Step 5: Complete**.
+1. Use **Step 1: Setup** to paste a supported video-page URL or direct HLS/DASH/MP4 URL and configure optional local AI diagnostics.
+2. Use **Step 2: Analysis** to watch identification steps and relevant network calls side by side while analysis runs.
+3. Use **Step 3: Select stream** to review the detected source, request context, and quality.
+4. Use **Step 4: Download options** to confirm the MP4 path and start FFmpeg.
+5. Use **Step 5: Progress** to watch progress or use **Pause**, **Resume**, and **Cancel**.
 
 The output path is editable. In the current milestone, **Browse** resets it to a generated filename in the Windows Videos folder rather than opening the native save picker.
 

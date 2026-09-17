@@ -17,8 +17,14 @@
                     </VisualState.StateTriggers>
                     <VisualState.Setters>
                         <Setter Target="ContentContainer.Padding" Value="12" />
-                        <Setter Target="NetworkActivityBorder.Height" Value="220" />
                         <Setter Target="WizardStepGrid.ColumnSpacing" Value="4" />
+                        <Setter Target="AnalysisProgressColumn0.Width" Value="*" />
+                        <Setter Target="AnalysisProgressColumn1.Width" Value="0" />
+                        <Setter Target="AnalysisStepsPanel.(Grid.Row)" Value="0" />
+                        <Setter Target="AnalysisStepsPanel.(Grid.Column)" Value="0" />
+                        <Setter Target="NetworkCallsPanel.(Grid.Row)" Value="1" />
+                        <Setter Target="NetworkCallsPanel.(Grid.Column)" Value="0" />
+                        <Setter Target="NetworkActivityBorder.Height" Value="260" />
                         <Setter Target="ActionColumn0.Width" Value="*" />
                         <Setter Target="ActionColumn1.Width" Value="0" />
                         <Setter Target="ActionColumn2.Width" Value="0" />
@@ -31,21 +37,23 @@
                         <Setter Target="ResumeButton.(Grid.Column)" Value="0" />
                         <Setter Target="CancelButton.(Grid.Row)" Value="3" />
                         <Setter Target="CancelButton.(Grid.Column)" Value="0" />
-                        <Setter Target="DownloadButton.HorizontalAlignment" Value="Stretch" />
-                        <Setter Target="PauseButton.HorizontalAlignment" Value="Stretch" />
-                        <Setter Target="ResumeButton.HorizontalAlignment" Value="Stretch" />
-                        <Setter Target="CancelButton.HorizontalAlignment" Value="Stretch" />
                     </VisualState.Setters>
                 </VisualState>
 
-                <VisualState x:Name="Medium">
+                <VisualState x:Name="Wide">
                     <VisualState.StateTriggers>
-                        <AdaptiveTrigger MinWindowWidth="680" />
+                        <AdaptiveTrigger MinWindowWidth="860" />
                     </VisualState.StateTriggers>
                     <VisualState.Setters>
-                        <Setter Target="ContentContainer.Padding" Value="20" />
-                        <Setter Target="NetworkActivityBorder.Height" Value="280" />
+                        <Setter Target="ContentContainer.Padding" Value="28" />
                         <Setter Target="WizardStepGrid.ColumnSpacing" Value="8" />
+                        <Setter Target="AnalysisProgressColumn0.Width" Value="*" />
+                        <Setter Target="AnalysisProgressColumn1.Width" Value="*" />
+                        <Setter Target="AnalysisStepsPanel.(Grid.Row)" Value="0" />
+                        <Setter Target="AnalysisStepsPanel.(Grid.Column)" Value="0" />
+                        <Setter Target="NetworkCallsPanel.(Grid.Row)" Value="0" />
+                        <Setter Target="NetworkCallsPanel.(Grid.Column)" Value="1" />
+                        <Setter Target="NetworkActivityBorder.Height" Value="420" />
                         <Setter Target="ActionColumn0.Width" Value="*" />
                         <Setter Target="ActionColumn1.Width" Value="*" />
                         <Setter Target="ActionColumn2.Width" Value="*" />
@@ -58,20 +66,6 @@
                         <Setter Target="ResumeButton.(Grid.Column)" Value="2" />
                         <Setter Target="CancelButton.(Grid.Row)" Value="0" />
                         <Setter Target="CancelButton.(Grid.Column)" Value="3" />
-                        <Setter Target="DownloadButton.HorizontalAlignment" Value="Stretch" />
-                        <Setter Target="PauseButton.HorizontalAlignment" Value="Stretch" />
-                        <Setter Target="ResumeButton.HorizontalAlignment" Value="Stretch" />
-                        <Setter Target="CancelButton.HorizontalAlignment" Value="Stretch" />
-                    </VisualState.Setters>
-                </VisualState>
-
-                <VisualState x:Name="Wide">
-                    <VisualState.StateTriggers>
-                        <AdaptiveTrigger MinWindowWidth="1040" />
-                    </VisualState.StateTriggers>
-                    <VisualState.Setters>
-                        <Setter Target="ContentContainer.Padding" Value="28" />
-                        <Setter Target="NetworkActivityBorder.Height" Value="340" />
                     </VisualState.Setters>
                 </VisualState>
             </VisualStateGroup>
@@ -89,12 +83,11 @@
             <Grid
                 x:Name="ContentContainer"
                 Width="{Binding ElementName=PageScrollViewer, Path=ViewportWidth}"
-                MaxWidth="1080"
+                MaxWidth="1180"
                 Padding="28"
                 HorizontalAlignment="Center"
                 RowSpacing="18">
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
@@ -104,7 +97,7 @@
                     <TextBlock FontSize="32" FontWeight="SemiBold" Text="StreamForge" />
                     <TextBlock
                         Opacity="0.75"
-                        Text="Step through stream detection, quality selection, and FFmpeg download."
+                        Text="Step through stream detection, analysis, selection, and FFmpeg download."
                         TextWrapping="Wrap" />
                 </StackPanel>
 
@@ -120,7 +113,6 @@
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
-
                     <Button
                         Grid.Column="0"
                         HorizontalAlignment="Stretch"
@@ -130,25 +122,26 @@
                     <Button
                         Grid.Column="1"
                         HorizontalAlignment="Stretch"
-                        Content="2  Progress"
+                        Content="2  Analysis"
                         IsEnabled="False" />
                     <Button
                         Grid.Column="2"
                         HorizontalAlignment="Stretch"
                         Command="{Binding GoToStreamStepCommand}"
-                        Content="3  Select"
+                        Content="3  Select stream"
                         IsEnabled="{Binding CanGoToStreamStep}" />
                     <Button
                         Grid.Column="3"
                         HorizontalAlignment="Stretch"
                         Command="{Binding GoToDownloadStepCommand}"
-                        Content="4  Download"
+                        Content="4  Download options"
                         IsEnabled="{Binding CanGoToDownloadStep}" />
                     <Button
                         Grid.Column="4"
                         HorizontalAlignment="Stretch"
-                        Content="5  Complete"
-                        IsEnabled="False" />
+                        Command="{Binding GoToDownloadProgressStepCommand}"
+                        Content="5  Progress"
+                        IsEnabled="{Binding CanGoToDownloadProgressStep}" />
                 </Grid>
 
                 <Border
@@ -162,12 +155,12 @@
                         <StackPanel
                             Spacing="12"
                             Visibility="{Binding IsAnalyzeStepActive, Converter={StaticResource BooleanToVisibilityConverter}}">
-                            <TextBlock FontSize="22" FontWeight="SemiBold" Text="Step 1: Analyze page" />
-                            <TextBlock Text="Video Page URL" />
+                            <TextBlock FontSize="22" FontWeight="SemiBold" Text="Step 1: Setup" />
+                            <TextBlock Text="Video page or direct media URL" />
                             <TextBox
                                 HorizontalAlignment="Stretch"
                                 IsEnabled="{Binding CanEditPageUrl}"
-                                PlaceholderText="https://example.com/video/123"
+                                PlaceholderText="https://example.com/video/123 or https://cdn.example.com/master.m3u8"
                                 Text="{Binding PageUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
 
                             <Expander Header="Optional local AI diagnostics">
@@ -196,7 +189,6 @@
                             <Grid ColumnSpacing="8">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
                                 <Button
@@ -204,51 +196,174 @@
                                     Command="{Binding AnalyzeCommand}"
                                     Content="Start analysis"
                                     IsEnabled="{Binding CanAnalyze}" />
-                                <Button
+                                <TextBlock
                                     Grid.Column="1"
-                                    Command="{Binding CancelCommand}"
-                                    Content="Cancel"
-                                    IsEnabled="{Binding CanCancel}" />
-                                <ProgressRing
-                                    Grid.Column="2"
-                                    Width="22"
-                                    Height="22"
-                                    HorizontalAlignment="Left"
-                                    IsActive="{Binding IsAnalyzing}" />
+                                    VerticalAlignment="Center"
+                                    Text="{Binding StatusMessage}"
+                                    TextWrapping="Wrap" />
                             </Grid>
-
-                            <TextBlock FontWeight="SemiBold" Text="Status" />
-                            <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" />
                         </StackPanel>
 
                         <StackPanel
                             Spacing="12"
                             Visibility="{Binding IsAnalysisProgressStepActive, Converter={StaticResource BooleanToVisibilityConverter}}">
-                            <TextBlock FontSize="22" FontWeight="SemiBold" Text="Step 2: Analysis progress" />
-                            <TextBlock
-                                Text="StreamForge is loading the page, watching player requests, collecting seed links, and validating supported media sources."
-                                TextWrapping="Wrap" />
                             <Grid ColumnSpacing="8">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <Button
-                                    Grid.Column="0"
-                                    Command="{Binding CancelCommand}"
-                                    Content="Cancel analysis"
-                                    IsEnabled="{Binding CanCancel}" />
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock FontSize="22" FontWeight="SemiBold" Text="Step 2: Analysis" />
+                                    <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" />
+                                </StackPanel>
                                 <ProgressRing
                                     Grid.Column="1"
-                                    Width="22"
-                                    Height="22"
-                                    IsActive="{Binding IsAnalyzing}" />
-                                <TextBlock
-                                    Grid.Column="2"
+                                    Width="24"
+                                    Height="24"
                                     VerticalAlignment="Center"
-                                    Text="{Binding StatusMessage}"
-                                    TextWrapping="Wrap" />
+                                    IsActive="{Binding IsAnalyzing}" />
+                                <Button
+                                    Grid.Column="2"
+                                    Command="{Binding CancelCommand}"
+                                    Content="Cancel"
+                                    IsEnabled="{Binding CanCancel}" />
+                            </Grid>
+
+                            <Grid
+                                x:Name="NetworkSection"
+                                ColumnSpacing="14"
+                                RowSpacing="14">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition x:Name="AnalysisProgressColumn0" Width="*" />
+                                    <ColumnDefinition x:Name="AnalysisProgressColumn1" Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+
+                                <StackPanel
+                                    x:Name="AnalysisStepsPanel"
+                                    Grid.Row="0"
+                                    Grid.Column="0"
+                                    Spacing="8">
+                                    <TextBlock FontSize="18" FontWeight="SemiBold" Text="Identification steps" />
+                                    <Border
+                                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                        BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="6">
+                                        <ItemsControl ItemsSource="{Binding IdentificationSteps}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="models:IdentificationStepUpdate">
+                                                    <Grid Padding="8,6" ColumnSpacing="10">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="24" />
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <TextBlock
+                                                            Grid.Column="0"
+                                                            HorizontalAlignment="Center"
+                                                            FontSize="16"
+                                                            FontWeight="SemiBold"
+                                                            Text="{x:Bind StatusGlyph}" />
+                                                        <StackPanel Grid.Column="1" MinWidth="0" Spacing="1">
+                                                            <TextBlock
+                                                                FontWeight="SemiBold"
+                                                                Text="{x:Bind Title}"
+                                                                TextWrapping="Wrap" />
+                                                            <TextBlock
+                                                                Opacity="0.7"
+                                                                Text="{x:Bind Detail}"
+                                                                TextWrapping="Wrap" />
+                                                        </StackPanel>
+                                                        <TextBlock
+                                                            Grid.Column="2"
+                                                            Margin="8,0,0,0"
+                                                            Opacity="0.75"
+                                                            Text="{x:Bind StatusDisplay}" />
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </Border>
+                                </StackPanel>
+
+                                <StackPanel
+                                    x:Name="NetworkCallsPanel"
+                                    Grid.Row="0"
+                                    Grid.Column="1"
+                                    Spacing="8">
+                                    <TextBlock FontSize="18" FontWeight="SemiBold" Text="Network calls" />
+                                    <Border
+                                        x:Name="NetworkActivityBorder"
+                                        Height="420"
+                                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                        BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="6">
+                                        <ListView
+                                            x:Name="NetworkActivityList"
+                                            Padding="4"
+                                            HorizontalContentAlignment="Stretch"
+                                            IsItemClickEnabled="False"
+                                            ItemsSource="{Binding NetworkActivities}"
+                                            ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                            ScrollViewer.HorizontalScrollMode="Disabled"
+                                            SelectionMode="None">
+                                            <ListView.ItemContainerStyle>
+                                                <Style TargetType="ListViewItem">
+                                                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                                    <Setter Property="Padding" Value="8,6" />
+                                                </Style>
+                                            </ListView.ItemContainerStyle>
+                                            <ListView.ItemTemplate>
+                                                <DataTemplate x:DataType="models:NetworkActivity">
+                                                    <Grid MinWidth="0" RowSpacing="3">
+                                                        <Grid.RowDefinitions>
+                                                            <RowDefinition Height="Auto" />
+                                                            <RowDefinition Height="Auto" />
+                                                            <RowDefinition Height="Auto" />
+                                                        </Grid.RowDefinitions>
+                                                        <Grid ColumnSpacing="10">
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="Auto" />
+                                                                <ColumnDefinition Width="Auto" />
+                                                                <ColumnDefinition Width="*" />
+                                                            </Grid.ColumnDefinitions>
+                                                            <TextBlock
+                                                                Grid.Column="0"
+                                                                FontWeight="SemiBold"
+                                                                Text="{x:Bind Category}" />
+                                                            <TextBlock
+                                                                Grid.Column="1"
+                                                                Opacity="0.75"
+                                                                Text="{x:Bind StatusDisplay}" />
+                                                            <TextBlock
+                                                                Grid.Column="2"
+                                                                HorizontalAlignment="Right"
+                                                                Opacity="0.65"
+                                                                Text="{x:Bind TimeDisplay}" />
+                                                        </Grid>
+                                                        <TextBlock
+                                                            Grid.Row="1"
+                                                            Text="{x:Bind Message}"
+                                                            TextWrapping="Wrap" />
+                                                        <TextBlock
+                                                            Grid.Row="2"
+                                                            MaxLines="3"
+                                                            Opacity="0.7"
+                                                            Text="{x:Bind DisplayUrl}"
+                                                            TextTrimming="CharacterEllipsis"
+                                                            TextWrapping="Wrap" />
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ListView.ItemTemplate>
+                                        </ListView>
+                                    </Border>
+                                </StackPanel>
                             </Grid>
                         </StackPanel>
 
@@ -282,7 +397,6 @@
                                 IsReadOnly="True"
                                 Text="{Binding RequestContextDisplay, Mode=OneWay}"
                                 TextWrapping="Wrap" />
-
                             <Grid ColumnSpacing="8">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" />
@@ -303,15 +417,15 @@
                         <StackPanel
                             Spacing="12"
                             Visibility="{Binding IsDownloadStepActive, Converter={StaticResource BooleanToVisibilityConverter}}">
-                            <TextBlock FontSize="22" FontWeight="SemiBold" Text="Step 4: Download" />
-                            <TextBlock Text="FFmpeg input API (selected quality)" />
+                            <TextBlock FontSize="22" FontWeight="SemiBold" Text="Step 4: Download options" />
+                            <TextBlock Text="FFmpeg input API" />
                             <TextBox
                                 HorizontalAlignment="Stretch"
                                 IsReadOnly="True"
                                 Text="{Binding DownloadApiUrl, Mode=OneWay}"
                                 TextWrapping="Wrap" />
                             <TextBlock Text="Output file" />
-                            <Grid ColumnSpacing="8" RowSpacing="8">
+                            <Grid ColumnSpacing="8">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
@@ -321,13 +435,42 @@
                                     MinWidth="0"
                                     HorizontalAlignment="Stretch"
                                     IsEnabled="{Binding CanConfigureDownload}"
-                                    Text="{Binding OutputPath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                Text="{Binding OutputPath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                                 <Button
                                     Grid.Column="1"
                                     Command="{Binding BrowseOutputCommand}"
                                     Content="Browse"
                                     IsEnabled="{Binding CanConfigureDownload}" />
                             </Grid>
+
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Button
+                                    Grid.Column="0"
+                                    Command="{Binding GoToStreamStepCommand}"
+                                    Content="Back" />
+                                <Button
+                                    Grid.Column="1"
+                                    Command="{Binding DownloadCommand}"
+                                    Content="Start download"
+                                    IsEnabled="{Binding CanDownload}" />
+                                <TextBlock
+                                    Grid.Column="2"
+                                    VerticalAlignment="Center"
+                                    Text="{Binding StatusMessage}"
+                                    TextWrapping="Wrap" />
+                            </Grid>
+                        </StackPanel>
+
+                        <StackPanel
+                            Spacing="12"
+                            Visibility="{Binding IsDownloadProgressStepActive, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <TextBlock FontSize="22" FontWeight="SemiBold" Text="Step 5: Download progress" />
+                            <TextBlock Text="{Binding OutputPath}" TextWrapping="Wrap" />
 
                             <Grid x:Name="ActionGrid" ColumnSpacing="8" RowSpacing="8">
                                 <Grid.ColumnDefinitions>
@@ -347,7 +490,7 @@
                                     Grid.Row="0"
                                     Grid.Column="0"
                                     Command="{Binding DownloadCommand}"
-                                    Content="Download"
+                                    Content="Restart"
                                     IsEnabled="{Binding CanDownload}" />
                                 <Button
                                     x:Name="PauseButton"
@@ -386,180 +529,15 @@
                                 Maximum="100"
                                 Minimum="0"
                                 Value="{Binding ProgressPercentage}" />
-
                             <VariableSizedWrapGrid MaximumRowsOrColumns="2" Orientation="Horizontal">
                                 <TextBlock MinWidth="220" Text="{Binding DownloadedBytesDisplay}" TextWrapping="Wrap" />
                                 <TextBlock MinWidth="220" Text="{Binding DownloadSpeed}" TextWrapping="Wrap" />
                                 <TextBlock MinWidth="220" Text="{Binding ElapsedTime}" TextWrapping="Wrap" />
                                 <TextBlock MinWidth="220" Text="{Binding EstimatedTime}" TextWrapping="Wrap" />
                             </VariableSizedWrapGrid>
-
-                            <Button
-                                Command="{Binding GoToStreamStepCommand}"
-                                Content="Back to stream selection"
-                                IsEnabled="{Binding CanGoToStreamStep}" />
-                        </StackPanel>
-
-                        <StackPanel
-                            Spacing="12"
-                            Visibility="{Binding IsCompleteStepActive, Converter={StaticResource BooleanToVisibilityConverter}}">
-                            <TextBlock FontSize="22" FontWeight="SemiBold" Text="Step 5: Complete" />
-                            <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" />
-                            <ProgressBar
-                                Height="16"
-                                HorizontalAlignment="Stretch"
-                                Maximum="100"
-                                Minimum="0"
-                                Value="{Binding ProgressPercentage}" />
-                            <TextBlock Text="{Binding OutputPath}" TextWrapping="Wrap" />
-                            <Grid ColumnSpacing="8">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <Button
-                                    Grid.Column="0"
-                                    Command="{Binding GoToDownloadStepCommand}"
-                                    Content="View download details"
-                                    IsEnabled="{Binding CanGoToDownloadStep}" />
-                                <Button
-                                    Grid.Column="1"
-                                    Command="{Binding GoToAnalyzeStepCommand}"
-                                    Content="Analyze another URL" />
-                            </Grid>
                         </StackPanel>
                     </Grid>
                 </Border>
-
-                <StackPanel
-                    x:Name="NetworkSection"
-                    Grid.Row="3"
-                    Spacing="8"
-                    Visibility="{Binding IsAnalysisProgressStepActive, Converter={StaticResource BooleanToVisibilityConverter}}">
-                    <Grid ColumnSpacing="8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0" Spacing="2">
-                            <TextBlock FontSize="20" FontWeight="SemiBold" Text="Analysis progress" />
-                            <TextBlock
-                                Opacity="0.7"
-                                Text="Identification steps and relevant network calls appear here while analysis runs."
-                                TextWrapping="Wrap" />
-                        </StackPanel>
-                        <ProgressRing
-                            Grid.Column="1"
-                            Width="22"
-                            Height="22"
-                            VerticalAlignment="Top"
-                            IsActive="{Binding IsAnalyzing}" />
-                    </Grid>
-
-                    <Expander Header="Identification steps" IsExpanded="True">
-                        <ItemsControl ItemsSource="{Binding IdentificationSteps}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate x:DataType="models:IdentificationStepUpdate">
-                                    <Grid Padding="6,5" ColumnSpacing="10">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="24" />
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="Auto" />
-                                        </Grid.ColumnDefinitions>
-                                        <TextBlock
-                                            Grid.Column="0"
-                                            HorizontalAlignment="Center"
-                                            FontSize="16"
-                                            FontWeight="SemiBold"
-                                            Text="{x:Bind StatusGlyph}" />
-                                        <StackPanel Grid.Column="1" MinWidth="0" Spacing="1">
-                                            <TextBlock
-                                                FontWeight="SemiBold"
-                                                Text="{x:Bind Title}"
-                                                TextWrapping="Wrap" />
-                                            <TextBlock
-                                                Opacity="0.7"
-                                                Text="{x:Bind Detail}"
-                                                TextWrapping="Wrap" />
-                                        </StackPanel>
-                                        <TextBlock
-                                            Grid.Column="2"
-                                            Margin="8,0,0,0"
-                                            Opacity="0.75"
-                                            Text="{x:Bind StatusDisplay}" />
-                                    </Grid>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </Expander>
-
-                    <Border
-                        x:Name="NetworkActivityBorder"
-                        Height="320"
-                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                        BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
-                        BorderThickness="1"
-                        CornerRadius="6">
-                        <ListView
-                            x:Name="NetworkActivityList"
-                            Padding="4"
-                            HorizontalContentAlignment="Stretch"
-                            IsItemClickEnabled="False"
-                            ItemsSource="{Binding NetworkActivities}"
-                            ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                            ScrollViewer.HorizontalScrollMode="Disabled"
-                            SelectionMode="None">
-                            <ListView.ItemContainerStyle>
-                                <Style TargetType="ListViewItem">
-                                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                                    <Setter Property="Padding" Value="8,6" />
-                                </Style>
-                            </ListView.ItemContainerStyle>
-                            <ListView.ItemTemplate>
-                                <DataTemplate x:DataType="models:NetworkActivity">
-                                    <Grid MinWidth="0" RowSpacing="3">
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="Auto" />
-                                        </Grid.RowDefinitions>
-                                        <Grid ColumnSpacing="10">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="Auto" />
-                                                <ColumnDefinition Width="Auto" />
-                                                <ColumnDefinition Width="*" />
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock
-                                                Grid.Column="0"
-                                                FontWeight="SemiBold"
-                                                Text="{x:Bind Category}" />
-                                            <TextBlock
-                                                Grid.Column="1"
-                                                Opacity="0.75"
-                                                Text="{x:Bind StatusDisplay}" />
-                                            <TextBlock
-                                                Grid.Column="2"
-                                                HorizontalAlignment="Right"
-                                                Opacity="0.65"
-                                                Text="{x:Bind TimeDisplay}" />
-                                        </Grid>
-                                        <TextBlock
-                                            Grid.Row="1"
-                                            Text="{x:Bind Message}"
-                                            TextWrapping="Wrap" />
-                                        <TextBlock
-                                            Grid.Row="2"
-                                            MaxLines="3"
-                                            Opacity="0.7"
-                                            Text="{x:Bind DisplayUrl}"
-                                            TextTrimming="CharacterEllipsis"
-                                            TextWrapping="Wrap" />
-                                    </Grid>
-                                </DataTemplate>
-                            </ListView.ItemTemplate>
-                        </ListView>
-                    </Border>
-                </StackPanel>
             </Grid>
         </ScrollViewer>
     </Grid>

@@ -183,6 +183,12 @@ public sealed class PlaywrightStreamExtractor(
         IProgress<IdentificationStepUpdate>? steps,
         CancellationToken cancellationToken)
     {
+        var directType = MediaTypeDetector.Detect(pageUrl);
+        if (directType != MediaSourceType.Unknown)
+        {
+            return CreateDirectMediaResult(pageUrl, directType, activity, steps);
+        }
+
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutCts.CancelAfter(ExtractionTimeout);
 
@@ -537,6 +543,81 @@ public sealed class PlaywrightStreamExtractor(
 
             return await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions { Headless = true });
         }
+    }
+
+    private static StreamExtractionResult CreateDirectMediaResult(
+        Uri mediaUrl,
+        MediaSourceType type,
+        IProgress<NetworkActivity>? activity,
+        IProgress<IdentificationStepUpdate>? steps)
+    {
+        ReportStep(
+            steps,
+            IdentificationStepKeys.OpenPage,
+            1,
+            "Open video page",
+            IdentificationStepStatus.Skipped,
+            "The supplied URL is already a supported media source.");
+        ReportStep(
+            steps,
+            IdentificationStepKeys.MonitorNetwork,
+            2,
+            "Monitor media network calls",
+            IdentificationStepStatus.Skipped,
+            "Network page analysis is not required for a direct media URL.");
+        ReportStep(
+            steps,
+            IdentificationStepKeys.DiscoverSeeds,
+            3,
+            "Collect player and embed seed links",
+            IdentificationStepStatus.Skipped,
+            "Seed discovery is not required for a direct media URL.");
+        ReportStep(
+            steps,
+            IdentificationStepKeys.InspectPlayers,
+            4,
+            "Inspect player APIs and video elements",
+            IdentificationStepStatus.Skipped,
+            "Player inspection is not required for a direct media URL.");
+        ReportStep(
+            steps,
+            IdentificationStepKeys.ProbeSeeds,
+            5,
+            "Probe discovered seed links",
+            IdentificationStepStatus.Skipped,
+            "Seed probing is not required for a direct media URL.");
+        ReportStep(
+            steps,
+            IdentificationStepKeys.SelectCandidate,
+            6,
+            "Validate and select download source",
+            IdentificationStepStatus.Success,
+            $"Using the supplied {type} media URL directly.");
+        ReportStep(
+            steps,
+            IdentificationStepKeys.AiFallback,
+            7,
+            "Optional local AI fallback",
+            IdentificationStepStatus.Skipped,
+            "Local AI is not required for a direct media URL.");
+
+        ReportActivity(
+            activity,
+            "DIRECT",
+            $"Using supplied {type} media URL",
+            mediaUrl,
+            important: true);
+
+        return new StreamExtractionResult
+        {
+            Stream = new MediaStream
+            {
+                Url = mediaUrl,
+                Type = type
+            },
+            FailureReason = AnalysisFailureReason.None,
+            Message = $"Detected direct {type} stream."
+        };
     }
 
     private static bool IsMissingBrowser(PlaywrightException exception)

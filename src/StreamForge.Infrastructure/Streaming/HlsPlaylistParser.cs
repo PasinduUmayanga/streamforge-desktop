@@ -38,7 +38,7 @@ public static partial class HlsPlaylistParser
                 continue;
             }
 
-            var streamUri = new Uri(playlistUri, streamLine);
+            var streamUri = ResolveVariantUri(playlistUri, streamLine);
             qualities.Add(new StreamQuality
             {
                 Label = height is null ? FormatBandwidthLabel(bandwidth) : $"{height}p",
@@ -82,6 +82,23 @@ public static partial class HlsPlaylistParser
         }
 
         return null;
+    }
+
+    private static Uri ResolveVariantUri(Uri playlistUri, string streamLine)
+    {
+        var streamUri = new Uri(playlistUri, streamLine);
+        if (streamUri.Query.Length > 0
+            || playlistUri.Query.Length == 0
+            || Uri.TryCreate(streamLine, UriKind.Absolute, out _))
+        {
+            return streamUri;
+        }
+
+        var builder = new UriBuilder(streamUri)
+        {
+            Query = playlistUri.Query.TrimStart('?')
+        };
+        return builder.Uri;
     }
 
     private static long? ParseLongAttribute(string attributes, string name)

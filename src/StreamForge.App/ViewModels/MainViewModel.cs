@@ -35,6 +35,7 @@ public sealed partial class MainViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(GoToAnalyzeStepCommand))]
     [NotifyCanExecuteChangedFor(nameof(GoToStreamStepCommand))]
     [NotifyCanExecuteChangedFor(nameof(GoToDownloadStepCommand))]
+    [NotifyCanExecuteChangedFor(nameof(GoToDownloadProgressStepCommand))]
     public partial int WizardStepIndex { get; set; }
 
     public bool IsAnalyzeStepActive => WizardStepIndex == 0;
@@ -45,7 +46,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     public bool IsDownloadStepActive => WizardStepIndex == 3;
 
-    public bool IsCompleteStepActive => WizardStepIndex == 4;
+    public bool IsDownloadProgressStepActive => WizardStepIndex == 4;
 
     [ObservableProperty]
     public partial string DetectedStreamUrl { get; set; } = string.Empty;
@@ -131,8 +132,7 @@ public sealed partial class MainViewModel : ObservableObject
     public bool CanDownload => !IsAnalyzing
         && !IsDownloading
         && _detectedStream is not null
-        && SelectedQuality is not null
-        && !string.IsNullOrWhiteSpace(OutputPath);
+        && IsValidOutputPath(OutputPath);
 
     public bool CanPause => IsDownloading && !IsPaused;
 
@@ -150,17 +150,25 @@ public sealed partial class MainViewModel : ObservableObject
 
     public bool CanGoToStreamStep => !IsAnalyzing && !IsDownloading && _detectedStream is not null;
 
-    public bool CanGoToDownloadStep => CanGoToStreamStep && SelectedQuality is not null;
+    public bool CanGoToDownloadStep => CanGoToStreamStep;
+
+    public bool CanGoToDownloadProgressStep => _detectedStream is not null
+        && (IsDownloading || ProgressPercentage > 0 || StatusMessage.Contains("Download", StringComparison.OrdinalIgnoreCase));
 
     partial void OnPageUrlChanged(string value) => OnPropertyChanged(nameof(CanAnalyze));
 
-    partial void OnOutputPathChanged(string value) => OnPropertyChanged(nameof(CanDownload));
+    partial void OnOutputPathChanged(string value)
+    {
+        OnPropertyChanged(nameof(CanDownload));
+        RefreshWizardNavigation();
+    }
 
     partial void OnSelectedQualityChanged(StreamQuality? value)
     {
         OnPropertyChanged(nameof(CanDownload));
         OnPropertyChanged(nameof(CanGoToDownloadStep));
         GoToDownloadStepCommand.NotifyCanExecuteChanged();
+        GoToDownloadProgressStepCommand.NotifyCanExecuteChanged();
         DownloadApiUrl = value?.Url.AbsoluteUri ?? _detectedStream?.Url.AbsoluteUri ?? string.Empty;
     }
 
@@ -202,7 +210,7 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(IsAnalysisProgressStepActive));
         OnPropertyChanged(nameof(IsStreamStepActive));
         OnPropertyChanged(nameof(IsDownloadStepActive));
-        OnPropertyChanged(nameof(IsCompleteStepActive));
+        OnPropertyChanged(nameof(IsDownloadProgressStepActive));
     }
 
     [RelayCommand(CanExecute = nameof(CanGoToAnalyzeStep))]
@@ -221,6 +229,12 @@ public sealed partial class MainViewModel : ObservableObject
     private void GoToDownloadStep()
     {
         WizardStepIndex = 3;
+    }
+
+    [RelayCommand(CanExecute = nameof(CanGoToDownloadProgressStep))]
+    private void GoToDownloadProgressStep()
+    {
+        WizardStepIndex = 4;
     }
 
     [RelayCommand(CanExecute = nameof(CanAnalyze))]
@@ -347,7 +361,7 @@ public sealed partial class MainViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanDownload))]
     private async Task DownloadAsync()
     {
-        if (_detectedStream is null || SelectedQuality is null)
+        if (_detectedStream is null || !IsValidOutputPath(OutputPath))
         {
             return;
         }
@@ -363,7 +377,7 @@ public sealed partial class MainViewModel : ObservableObject
         EstimatedTime = "Time remaining: Calculating...";
         _operationCts = new CancellationTokenSource();
         StatusMessage = "Download started...";
-        WizardStepIndex = 3;
+        WizardStepIndex = 4;
 
         var progress = new Progress<DownloadProgress>(UpdateProgress);
         try
@@ -385,7 +399,6 @@ public sealed partial class MainViewModel : ObservableObject
             {
                 ProgressPercentage = 100;
                 ProgressPercentageDisplay = "100%";
-                WizardStepIndex = 4;
             }
         }
         finally
@@ -554,9 +567,11 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(CanGoToAnalyzeStep));
         OnPropertyChanged(nameof(CanGoToStreamStep));
         OnPropertyChanged(nameof(CanGoToDownloadStep));
+        OnPropertyChanged(nameof(CanGoToDownloadProgressStep));
         GoToAnalyzeStepCommand.NotifyCanExecuteChanged();
         GoToStreamStepCommand.NotifyCanExecuteChanged();
         GoToDownloadStepCommand.NotifyCanExecuteChanged();
+        GoToDownloadProgressStepCommand.NotifyCanExecuteChanged();
     }
 
     private static IdentificationStepUpdate Step(
@@ -639,6 +654,26 @@ public sealed partial class MainViewModel : ObservableObject
         return duration.TotalDays >= 1
             ? $"{(int)duration.TotalDays}d {duration:hh\\:mm\\:ss}"
             : $"{duration:hh\\:mm\\:ss}";
+    }
+
+    private static bool IsValidOutputPath(string outputPath)
+    {
+        if (string.IsNullOrWhiteSpace(outputPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            var fullPath = Path.GetFullPath(outputPath);
+            return fullPath.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(Path.GetFileName(fullPath))
+                && !string.IsNullOrWhiteSpace(Path.GetDirectoryName(fullPath));
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static string CreateDefaultOutputPath()

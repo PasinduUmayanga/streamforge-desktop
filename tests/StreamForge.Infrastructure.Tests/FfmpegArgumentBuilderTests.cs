@@ -36,4 +36,31 @@ public sealed class FfmpegArgumentBuilderTests
         Assert.Contains("https://cdn.example.com/1080/index.m3u8", args);
         Assert.Equal(@"C:\Videos\video.mp4", args[^1]);
     }
+
+    [Fact]
+    public void Build_AddsReconnectOptionsBeforeInput()
+    {
+        var request = new DownloadRequest
+        {
+            Stream = new MediaStream
+            {
+                Url = new Uri("https://cdn.example.com/master.m3u8"),
+                Type = MediaSourceType.Hls
+            },
+            Quality = new StreamQuality
+            {
+                Label = "Auto",
+                Url = new Uri("https://cdn.example.com/master.m3u8")
+            },
+            OutputPath = @"C:\Videos\video.mp4"
+        };
+
+        var args = FfmpegArgumentBuilder.Build(request);
+        var inputIndex = args.ToList().IndexOf("-i");
+
+        Assert.True(inputIndex > 0);
+        Assert.True(args.ToList().IndexOf("-reconnect") < inputIndex);
+        Assert.Contains("-reconnect_streamed", args);
+        Assert.Contains("-reconnect_delay_max", args);
+    }
 }
