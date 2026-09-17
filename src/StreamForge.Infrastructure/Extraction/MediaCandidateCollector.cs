@@ -8,8 +8,11 @@ internal sealed class MediaCandidateCollector
     private readonly ConcurrentDictionary<string, MediaCandidate> _candidates =
         new(StringComparer.Ordinal);
     private long _lastCandidateTicks;
+    private int _blobPlayerObserved;
 
     public int Count => _candidates.Count;
+
+    public bool BlobPlayerObserved => Volatile.Read(ref _blobPlayerObserved) == 1;
 
     public DateTimeOffset? LastCandidateAt
     {
@@ -50,18 +53,23 @@ internal sealed class MediaCandidateCollector
 
     public IReadOnlyList<MediaCandidate> Snapshot() => [.. _candidates.Values];
 
+    public bool MarkBlobPlayerObserved() => Interlocked.Exchange(ref _blobPlayerObserved, 1) == 0;
+
     private static MediaCandidate Merge(MediaCandidate existing, MediaCandidate incoming)
     {
         var preferred = CandidateRanker.SourceScore(incoming.Source) > CandidateRanker.SourceScore(existing.Source)
             ? incoming
             : existing;
+        var mergedHeaders = IsNetworkCapture(incoming.Source)
+            ? MergeHeaders(existing.Headers, incoming.Headers)
+            : MergeHeaders(incoming.Headers, existing.Headers);
 
         return new MediaCandidate
         {
             Url = existing.Url,
             Type = existing.Type != MediaSourceType.Unknown ? existing.Type : incoming.Type,
             Source = preferred.Source,
-            Headers = MergeHeaders(existing.Headers, incoming.Headers),
+            Headers = mergedHeaders,
             ResourceType = incoming.ResourceType ?? existing.ResourceType,
             ContentType = incoming.ContentType ?? existing.ContentType,
             Status = incoming.Status ?? existing.Status,
@@ -69,6 +77,11 @@ internal sealed class MediaCandidateCollector
             FrameUrl = preferred.FrameUrl ?? incoming.FrameUrl ?? existing.FrameUrl,
             CapturedAt = existing.CapturedAt <= incoming.CapturedAt ? existing.CapturedAt : incoming.CapturedAt
         };
+    }
+
+    private static bool IsNetworkCapture(MediaCandidateSource source)
+    {
+        return source is MediaCandidateSource.NetworkUrl or MediaCandidateSource.ResponseContentType;
     }
 
     private static IReadOnlyDictionary<string, string> MergeHeaders(

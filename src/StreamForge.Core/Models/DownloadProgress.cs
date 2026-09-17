@@ -10,5 +10,9 @@ public sealed class DownloadProgress
 
     public string? Speed { get; init; }
 
+    public double? BytesPerSecond { get; init; }
+
+    public TimeSpan? EstimatedTimeRemaining { get; init; }
+
     public string? CurrentTime { get; init; }
 }

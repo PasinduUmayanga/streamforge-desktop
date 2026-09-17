@@ -13,7 +13,9 @@ internal static class CandidateRanker
     internal static int SourceScore(MediaCandidateSource source) => source switch
     {
         MediaCandidateSource.JwPlayer => 80,
+        MediaCandidateSource.KnownPlayer => 75,
         MediaCandidateSource.VideoElement => 70,
+        MediaCandidateSource.BrowserObservation => 55,
         MediaCandidateSource.ResponseContentType => 40,
         _ => 20
     };

@@ -6,6 +6,7 @@
     <UseWinUI>true</UseWinUI>
     <WindowsPackageType>None</WindowsPackageType>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\StreamForge.ico</ApplicationIcon>
     <Platforms>x64</Platforms>
     <PlatformTarget>x64</PlatformTarget>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
@@ -25,10 +26,22 @@
     <IncludeOptionalProjectsOutputGroup>false</IncludeOptionalProjectsOutputGroup>
     <IncludeCopyWinmdArtifactsOutputGroup>false</IncludeCopyWinmdArtifactsOutputGroup>
     <IncludeSDKRedistOutputGroup>false</IncludeSDKRedistOutputGroup>
+    <LocalFfmpegPath>$(MSBuildProjectDirectory)\..\..\.tools\ffmpeg\ffmpeg.exe</LocalFfmpegPath>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\StreamForge.Core\StreamForge.Core.csproj" />
     <ProjectReference Include="..\StreamForge.Infrastructure\StreamForge.Infrastructure.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="Assets\StreamForge.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+  <ItemGroup Condition="Exists('$(LocalFfmpegPath)')">
+    <Content Include="$(LocalFfmpegPath)" Link="ffmpeg\ffmpeg.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />

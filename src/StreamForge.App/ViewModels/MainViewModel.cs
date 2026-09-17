@@ -39,6 +39,8 @@ public sealed partial class MainViewModel : ObservableObject
 
     public ObservableCollection<StreamQuality> AvailableQualities { get; } = [];
 
+    public ObservableCollection<NetworkActivity> NetworkActivities { get; } = [];
+
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(DownloadCommand))]
     public partial string OutputPath { get; set; } = string.Empty;
@@ -47,7 +49,16 @@ public sealed partial class MainViewModel : ObservableObject
     public partial string StatusMessage { get; set; } = string.Empty;
 
     [ObservableProperty]
+    public partial string DownloadApiUrl { get; set; } = string.Empty;
+
+    [ObservableProperty]
+    public partial string RequestContextDisplay { get; set; } = "Request context will appear after analysis.";
+
+    [ObservableProperty]
     public partial double ProgressPercentage { get; set; }
+
+    [ObservableProperty]
+    public partial string ProgressPercentageDisplay { get; set; } = "0%";
 
     [ObservableProperty]
     public partial string DownloadSpeed { get; set; } = "Speed: --";
@@ -62,13 +73,23 @@ public sealed partial class MainViewModel : ObservableObject
     public partial string ElapsedTime { get; set; } = "Elapsed: 00:00:00";
 
     [ObservableProperty]
+    public partial string EstimatedTime { get; set; } = "Time remaining: --";
+
+    [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(AnalyzeCommand))]
     public partial bool IsAnalyzing { get; set; }
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(AnalyzeCommand))]
     [NotifyCanExecuteChangedFor(nameof(DownloadCommand))]
+    [NotifyCanExecuteChangedFor(nameof(PauseCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ResumeCommand))]
     public partial bool IsDownloading { get; set; }
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(PauseCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ResumeCommand))]
+    public partial bool IsPaused { get; set; }
 
     public bool CanAnalyze => !IsAnalyzing && !IsDownloading && Uri.TryCreate(PageUrl, UriKind.Absolute, out _);
 
@@ -78,11 +99,19 @@ public sealed partial class MainViewModel : ObservableObject
         && SelectedQuality is not null
         && !string.IsNullOrWhiteSpace(OutputPath);
 
+    public bool CanPause => IsDownloading && !IsPaused;
+
+    public bool CanResume => IsDownloading && IsPaused;
+
     partial void OnPageUrlChanged(string value) => OnPropertyChanged(nameof(CanAnalyze));
 
     partial void OnOutputPathChanged(string value) => OnPropertyChanged(nameof(CanDownload));
 
-    partial void OnSelectedQualityChanged(StreamQuality? value) => OnPropertyChanged(nameof(CanDownload));
+    partial void OnSelectedQualityChanged(StreamQuality? value)
+    {
+        OnPropertyChanged(nameof(CanDownload));
+        DownloadApiUrl = value?.Url.AbsoluteUri ?? _detectedStream?.Url.AbsoluteUri ?? string.Empty;
+    }
 
     partial void OnIsAnalyzingChanged(bool value)
     {
@@ -94,6 +123,14 @@ public sealed partial class MainViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(CanAnalyze));
         OnPropertyChanged(nameof(CanDownload));
+        OnPropertyChanged(nameof(CanPause));
+        OnPropertyChanged(nameof(CanResume));
+    }
+
+    partial void OnIsPausedChanged(bool value)
+    {
+        OnPropertyChanged(nameof(CanPause));
+        OnPropertyChanged(nameof(CanResume));
     }
 
     [RelayCommand(CanExecute = nameof(CanAnalyze))]
@@ -112,7 +149,8 @@ public sealed partial class MainViewModel : ObservableObject
 
         try
         {
-            var stream = await _streamExtractor.ExtractAsync(pageUri, _operationCts.Token);
+            var networkActivity = new Progress<NetworkActivity>(AddNetworkActivity);
+            var stream = await _streamExtractor.ExtractAsync(pageUri, networkActivity, _operationCts.Token);
             if (stream is null)
             {
                 StatusMessage = "No supported media stream was detected.";
@@ -129,6 +167,7 @@ public sealed partial class MainViewModel : ObservableObject
             _detectedStream = stream;
             OnPropertyChanged(nameof(CanDownload));
             DetectedStreamUrl = stream.Url.AbsoluteUri;
+            RequestContextDisplay = BuildRequestContext(stream);
             AvailableQualities.Clear();
             foreach (var quality in stream.Qualities.DefaultIfEmpty(new StreamQuality { Label = "Auto", Url = stream.Url }))
             {
@@ -163,7 +202,14 @@ public sealed partial class MainViewModel : ObservableObject
         }
 
         IsDownloading = true;
+        IsPaused = false;
         ProgressPercentage = 0;
+        ProgressPercentageDisplay = "0%";
+        DownloadedBytes = 0;
+        DownloadedBytesDisplay = "Downloaded: 0 MB";
+        DownloadSpeed = "Speed: Calculating...";
+        ElapsedTime = "Elapsed: 00:00:00";
+        EstimatedTime = "Time remaining: Calculating...";
         _operationCts = new CancellationTokenSource();
         StatusMessage = "Download started...";
 
@@ -186,10 +232,41 @@ public sealed partial class MainViewModel : ObservableObject
         }
         finally
         {
+            IsPaused = false;
             IsDownloading = false;
             _operationCts?.Dispose();
             _operationCts = null;
         }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanPause))]
+    private void Pause()
+    {
+        if (!_downloadService.TryPause())
+        {
+            StatusMessage = "The active download could not be paused.";
+            return;
+        }
+
+        IsPaused = true;
+        DownloadSpeed = "Speed: Paused";
+        EstimatedTime = "Time remaining: Paused";
+        StatusMessage = "Download paused.";
+    }
+
+    [RelayCommand(CanExecute = nameof(CanResume))]
+    private void Resume()
+    {
+        if (!_downloadService.TryResume())
+        {
+            StatusMessage = "The paused download could not be resumed.";
+            return;
+        }
+
+        IsPaused = false;
+        DownloadSpeed = "Speed: Calculating...";
+        EstimatedTime = "Time remaining: Calculating...";
+        StatusMessage = "Download resumed.";
     }
 
     [RelayCommand]
@@ -210,21 +287,97 @@ public sealed partial class MainViewModel : ObservableObject
     {
         _detectedStream = null;
         DetectedStreamUrl = string.Empty;
+        DownloadApiUrl = string.Empty;
+        RequestContextDisplay = "Request context will appear after analysis.";
+        NetworkActivities.Clear();
         AvailableQualities.Clear();
         SelectedQuality = null;
         ProgressPercentage = 0;
+        ProgressPercentageDisplay = "0%";
+        DownloadedBytes = 0;
+        DownloadedBytesDisplay = "Downloaded: 0 MB";
+        DownloadSpeed = "Speed: --";
+        ElapsedTime = "Elapsed: 00:00:00";
+        EstimatedTime = "Time remaining: --";
+    }
+
+    private void AddNetworkActivity(NetworkActivity activity)
+    {
+        const int maximumActivityCount = 200;
+        while (NetworkActivities.Count >= maximumActivityCount)
+        {
+            NetworkActivities.RemoveAt(0);
+        }
+
+        NetworkActivities.Add(activity);
+    }
+
+    private static string BuildRequestContext(MediaStream stream)
+    {
+        var values = new List<string>();
+        if (!string.IsNullOrWhiteSpace(stream.Referer))
+        {
+            values.Add($"Referer: {SanitizeContextUrl(stream.Referer)}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(stream.Origin))
+        {
+            values.Add($"Origin: {stream.Origin}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(stream.UserAgent))
+        {
+            values.Add($"User-Agent: {stream.UserAgent}");
+        }
+
+        return values.Count == 0 ? "No additional request headers were detected." : string.Join(Environment.NewLine, values);
+    }
+
+    private static string SanitizeContextUrl(string value)
+    {
+        return Uri.TryCreate(value, UriKind.Absolute, out var uri)
+            ? uri.GetLeftPart(UriPartial.Path)
+            : value;
     }
 
     private void UpdateProgress(DownloadProgress progress)
     {
         DownloadedBytes = progress.BytesDownloaded;
         DownloadedBytesDisplay = $"Downloaded: {progress.BytesDownloaded / 1024d / 1024d:0.##} MB";
-        DownloadSpeed = $"Speed: {progress.Speed ?? "--"}";
+        DownloadSpeed = progress.BytesPerSecond is { } bytesPerSecond
+            ? $"Speed: {FormatTransferRate(bytesPerSecond)}"
+            : "Speed: Calculating...";
         ElapsedTime = $"Elapsed: {progress.Elapsed:hh\\:mm\\:ss}";
+        EstimatedTime = progress.EstimatedTimeRemaining is { } remaining
+            ? $"Time remaining: {FormatDuration(remaining)}"
+            : "Time remaining: Calculating...";
         if (progress.Percentage is { } percentage)
         {
             ProgressPercentage = percentage;
+            ProgressPercentageDisplay = $"{percentage:0}%";
         }
+    }
+
+    private static string FormatTransferRate(double bytesPerSecond)
+    {
+        string[] units = ["B/s", "KB/s", "MB/s", "GB/s"];
+        var value = Math.Max(0, bytesPerSecond);
+        var unitIndex = 0;
+        while (value >= 1024 && unitIndex < units.Length - 1)
+        {
+            value /= 1024;
+            unitIndex++;
+        }
+
+        return $"{value:0.##} {units[unitIndex]}";
+    }
+
+    private static string FormatDuration(TimeSpan duration)
+    {
+        duration = duration < TimeSpan.Zero ? TimeSpan.Zero : duration;
+        return duration.TotalDays >= 1
+            ? $"{(int)duration.TotalDays}d {duration:hh\\:mm\\:ss}"
+            : $"{duration:hh\\:mm\\:ss}";
     }
 
     private static string CreateDefaultOutputPath()

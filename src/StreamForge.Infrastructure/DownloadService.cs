@@ -5,6 +5,8 @@ namespace StreamForge.Infrastructure;
 
 public sealed class DownloadService(IFfmpegService ffmpegService) : IDownloadService
 {
+    public bool IsPaused => ffmpegService.IsPaused;
+
     public Task<DownloadResult> DownloadAsync(
         DownloadRequest request,
         IProgress<DownloadProgress> progress,
@@ -12,4 +14,8 @@ public sealed class DownloadService(IFfmpegService ffmpegService) : IDownloadSer
     {
         return ffmpegService.DownloadAsync(request, progress, cancellationToken);
     }
+
+    public bool TryPause() => ffmpegService.TryPause();
+
+    public bool TryResume() => ffmpegService.TryResume();
 }

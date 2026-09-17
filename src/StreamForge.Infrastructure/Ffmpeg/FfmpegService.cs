@@ -5,14 +5,46 @@ using StreamForge.Core.Models;
 
 namespace StreamForge.Infrastructure.Ffmpeg;
 
-public sealed class FfmpegService(IFfmpegLocator locator, ILogger<FfmpegService> logger) : IFfmpegService
+public sealed class FfmpegService : IFfmpegService
 {
+    private readonly IFfmpegLocator _locator;
+    private readonly ILogger<FfmpegService> _logger;
+    private readonly IProcessPauseController _pauseController;
+    private readonly object _activeDownloadSync = new();
+    private ActiveDownload? _activeDownload;
+
+    public FfmpegService(IFfmpegLocator locator, ILogger<FfmpegService> logger)
+        : this(locator, logger, new WindowsProcessPauseController())
+    {
+    }
+
+    internal FfmpegService(
+        IFfmpegLocator locator,
+        ILogger<FfmpegService> logger,
+        IProcessPauseController pauseController)
+    {
+        _locator = locator;
+        _logger = logger;
+        _pauseController = pauseController;
+    }
+
+    public bool IsPaused
+    {
+        get
+        {
+            lock (_activeDownloadSync)
+            {
+                return _activeDownload?.IsPaused == true;
+            }
+        }
+    }
+
     public async Task<DownloadResult> DownloadAsync(
         DownloadRequest request,
         IProgress<DownloadProgress> progress,
         CancellationToken cancellationToken)
     {
-        var ffmpegPath = locator.Locate();
+        var ffmpegPath = _locator.Locate();
         if (string.IsNullOrWhiteSpace(ffmpegPath))
         {
             return new DownloadResult
@@ -46,16 +78,25 @@ public sealed class FfmpegService(IFfmpegLocator locator, ILogger<FfmpegService>
                 return new DownloadResult { Succeeded = false, ErrorMessage = "FFmpeg could not be started." };
             }
 
-            logger.LogInformation("Download started.");
+            if (!TrySetActiveDownload(process, parser))
+            {
+                await StopProcessAsync(process);
+                return new DownloadResult
+                {
+                    Succeeded = false,
+                    ErrorMessage = "Another FFmpeg download is already running."
+                };
+            }
+
+            _logger.LogInformation("Download started.");
 
             var stdout = ReadProgressAsync(process, parser, progress, cancellationToken);
-            var stderr = process.StandardError.ReadToEndAsync(cancellationToken);
+            var stderr = ReadDiagnosticsAsync(process, parser, cancellationToken);
 
             await process.WaitForExitAsync(cancellationToken);
-            await stdout;
-            _ = await stderr;
+            await Task.WhenAll(stdout, stderr);
 
-            logger.LogInformation("FFmpeg exit code {ExitCode}", process.ExitCode);
+            _logger.LogInformation("FFmpeg exit code {ExitCode}", process.ExitCode);
             return new DownloadResult
             {
                 Succeeded = process.ExitCode == 0,
@@ -66,13 +107,126 @@ public sealed class FfmpegService(IFfmpegLocator locator, ILogger<FfmpegService>
         catch (OperationCanceledException)
         {
             await StopProcessAsync(process);
-            logger.LogInformation("Download cancelled.");
+            _logger.LogInformation("Download cancelled.");
             return new DownloadResult { Succeeded = false, Cancelled = true, ErrorMessage = "Download cancelled." };
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "FFmpeg download failed.");
+            await StopProcessAsync(process);
+            _logger.LogError(ex, "FFmpeg download failed.");
             return new DownloadResult { Succeeded = false, ErrorMessage = ex.Message };
+        }
+        finally
+        {
+            ClearActiveDownload(process);
+        }
+    }
+
+    public bool TryPause()
+    {
+        lock (_activeDownloadSync)
+        {
+            var download = _activeDownload;
+            if (download is null || download.IsPaused || HasExited(download.Process))
+            {
+                return false;
+            }
+
+            try
+            {
+                if (!_pauseController.TrySuspend(download.Process))
+                {
+                    return false;
+                }
+
+                download.Parser.Pause();
+                download.IsPaused = true;
+                _logger.LogInformation("Download paused.");
+                return true;
+            }
+            catch (Exception exception)
+            {
+                _logger.LogWarning(exception, "FFmpeg could not be paused.");
+                return false;
+            }
+        }
+    }
+
+    public bool TryResume()
+    {
+        lock (_activeDownloadSync)
+        {
+            var download = _activeDownload;
+            if (download is null || !download.IsPaused || HasExited(download.Process))
+            {
+                return false;
+            }
+
+            try
+            {
+                if (!_pauseController.TryResume(download.Process))
+                {
+                    return false;
+                }
+
+                download.Parser.Resume();
+                download.IsPaused = false;
+                _logger.LogInformation("Download resumed.");
+                return true;
+            }
+            catch (Exception exception)
+            {
+                _logger.LogWarning(exception, "FFmpeg could not be resumed.");
+                return false;
+            }
+        }
+    }
+
+    private bool TrySetActiveDownload(Process process, FfmpegProgressParser parser)
+    {
+        lock (_activeDownloadSync)
+        {
+            if (_activeDownload is not null)
+            {
+                return false;
+            }
+
+            _activeDownload = new ActiveDownload(process, parser);
+            return true;
+        }
+    }
+
+    private void ClearActiveDownload(Process process)
+    {
+        lock (_activeDownloadSync)
+        {
+            if (_activeDownload?.Process == process)
+            {
+                _activeDownload = null;
+            }
+        }
+    }
+
+    private void ResumeBeforeStopping(Process process)
+    {
+        lock (_activeDownloadSync)
+        {
+            var download = _activeDownload;
+            if (download?.Process != process || !download.IsPaused)
+            {
+                return;
+            }
+
+            try
+            {
+                _pauseController.TryResume(process);
+                download.Parser.Resume();
+                download.IsPaused = false;
+            }
+            catch (Exception exception)
+            {
+                _logger.LogWarning(exception, "Paused FFmpeg process could not be resumed before stopping.");
+            }
         }
     }
 
@@ -98,9 +252,27 @@ public sealed class FfmpegService(IFfmpegLocator locator, ILogger<FfmpegService>
         }
     }
 
-    private static async Task StopProcessAsync(Process process)
+    private static async Task ReadDiagnosticsAsync(
+        Process process,
+        FfmpegProgressParser parser,
+        CancellationToken cancellationToken)
     {
-        if (process.HasExited)
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var line = await process.StandardError.ReadLineAsync(cancellationToken);
+            if (line is null)
+            {
+                break;
+            }
+
+            parser.ParseDiagnosticLine(line);
+        }
+    }
+
+    private async Task StopProcessAsync(Process process)
+    {
+        ResumeBeforeStopping(process);
+        if (HasExited(process))
         {
             return;
         }
@@ -109,17 +281,38 @@ public sealed class FfmpegService(IFfmpegLocator locator, ILogger<FfmpegService>
         {
             process.CloseMainWindow();
             await Task.Delay(1500);
-            if (!process.HasExited)
+            if (!HasExited(process))
             {
                 process.Kill(entireProcessTree: true);
             }
         }
         catch
         {
-            if (!process.HasExited)
+            if (!HasExited(process))
             {
                 process.Kill(entireProcessTree: true);
             }
         }
+    }
+
+    private static bool HasExited(Process process)
+    {
+        try
+        {
+            return process.HasExited;
+        }
+        catch (InvalidOperationException)
+        {
+            return true;
+        }
+    }
+
+    private sealed class ActiveDownload(Process process, FfmpegProgressParser parser)
+    {
+        public Process Process { get; } = process;
+
+        public FfmpegProgressParser Parser { get; } = parser;
+
+        public bool IsPaused { get; set; }
     }
 }

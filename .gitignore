@@ -16,6 +16,10 @@ playwright.ps1
 coverage/
 artifacts/
 
+# Locally installed build/runtime dependencies
+.tools/
+.cache/
+
 # Windows / Visual Studio
 *.userosscache
 *.sln.docstates

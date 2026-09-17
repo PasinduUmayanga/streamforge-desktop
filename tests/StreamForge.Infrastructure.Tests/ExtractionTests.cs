@@ -1,5 +1,6 @@
 using StreamForge.Infrastructure.Extraction;
 using StreamForge.Core.Models;
+using System.Text.Json;
 
 namespace StreamForge.Infrastructure.Tests;
 
@@ -18,6 +19,77 @@ public sealed class ExtractionTests
         Assert.DoesNotContain("Authorization", filtered.Keys);
         Assert.DoesNotContain("Cookie", filtered.Keys);
         Assert.Equal("agent", filtered["User-Agent"]);
+    }
+
+    [Fact]
+    public void NetworkUrlSanitizer_RedactsQueryValuesButKeepsNames()
+    {
+        var result = NetworkUrlSanitizer.ForDisplay(
+            new Uri("https://cdn.example.com/master.m3u8?token=very-secret&quality=1080"));
+
+        Assert.Equal(
+            "https://cdn.example.com/master.m3u8?token=<redacted>&quality=<redacted>",
+            result);
+        Assert.DoesNotContain("very-secret", result);
+    }
+
+    [Fact]
+    public void EmbeddedMediaUrlExtractor_FindsJsonEscapedAndEncodedMediaUrls()
+    {
+        const string response = """
+            {
+              "file": "https:\/\/cdn.example.com\/video\/master.m3u8?token=abc",
+              "fallback": "https%3A%2F%2Fcdn.example.com%2Fvideo%2Ffallback.mp4%3Ftoken%3Dxyz"
+            }
+            """;
+
+        var results = EmbeddedMediaUrlExtractor.Extract(
+            response,
+            new Uri("https://player.example.com/api/source"));
+
+        Assert.Equal(2, results.Count);
+        Assert.Contains(results, uri => uri.AbsolutePath.EndsWith("master.m3u8", StringComparison.Ordinal));
+        Assert.Contains(results, uri => uri.AbsolutePath.EndsWith("fallback.mp4", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void EmbeddedMediaUrlExtractor_IgnoresNonMediaUrls()
+    {
+        var results = EmbeddedMediaUrlExtractor.Extract(
+            "{\"poster\":\"https://cdn.example.com/poster.jpg\"}",
+            new Uri("https://player.example.com/api/source"));
+
+        Assert.Empty(results);
+    }
+
+    [Fact]
+    public void KnownPlayerSourceExtractor_ParsesAndDeduplicatesSupportedSources()
+    {
+        using var document = JsonDocument.Parse("""
+            [
+              { "player": "Video.js", "url": "https://cdn.example.com/master.m3u8?token=abc" },
+              { "player": "Duplicate", "url": "https://cdn.example.com/master.m3u8?token=abc" },
+              { "player": "Shaka Player", "url": "https://cdn.example.com/manifest.mpd" },
+              { "player": "Fluid Player", "url": "https://cdn.example.com/fluid/master.m3u8" },
+              { "player": "MediaElement.js", "url": "https://cdn.example.com/mediaelement/video.mp4" },
+              { "player": "OpenPlayerJS", "url": "https://cdn.example.com/openplayer/master.m3u8" },
+              { "player": "ArtPlayer", "url": "https://cdn.example.com/artplayer/master.m3u8" },
+              { "player": "DPlayer", "url": "https://cdn.example.com/dplayer/master.m3u8" },
+              { "player": "Plyr", "url": "blob:https://example.com/not-downloadable" },
+              { "player": "Invalid", "url": "https://cdn.example.com/poster.jpg" }
+            ]
+            """);
+
+        var results = KnownPlayerSourceExtractor.Parse(document.RootElement);
+
+        Assert.Equal(7, results.Count);
+        Assert.Contains(results, source => source.Player == "Video.js" && source.Url.AbsolutePath.EndsWith("master.m3u8"));
+        Assert.Contains(results, source => source.Player == "Shaka Player" && source.Url.AbsolutePath.EndsWith("manifest.mpd"));
+        Assert.Contains(results, source => source.Player == "Fluid Player");
+        Assert.Contains(results, source => source.Player == "MediaElement.js");
+        Assert.Contains(results, source => source.Player == "OpenPlayerJS");
+        Assert.Contains(results, source => source.Player == "ArtPlayer");
+        Assert.Contains(results, source => source.Player == "DPlayer");
     }
 
     [Theory]
@@ -53,6 +125,24 @@ public sealed class ExtractionTests
     }
 
     [Fact]
+    public void MediaTypeDetector_DoesNotTreatBlobPlaybackUrlAsDownloadableMedia()
+    {
+        var blobUrl = new Uri("blob:https://player.example.com/348fe413-0bbd-467e-8c62-f699f8588a63");
+
+        Assert.Equal(MediaSourceType.Unknown, MediaTypeDetector.Detect(blobUrl));
+    }
+
+    [Fact]
+    public void CandidateCollector_TracksBlobBackedPlayerObservation()
+    {
+        var collector = new MediaCandidateCollector();
+
+        collector.MarkBlobPlayerObserved();
+
+        Assert.True(collector.BlobPlayerObserved);
+    }
+
+    [Fact]
     public void CandidateCollector_DeduplicatesAndEnrichesTheExactSignedUrl()
     {
         var collector = new MediaCandidateCollector();
@@ -73,6 +163,32 @@ public sealed class ExtractionTests
         Assert.Equal(uri.AbsoluteUri, result.Url.AbsoluteUri);
         Assert.Equal(200, result.Status);
         Assert.True(result.IsMasterPlaylist);
+    }
+
+    [Fact]
+    public void CandidateCollector_PreservesAuthoritativeNetworkHeadersForObservedBlobSource()
+    {
+        var collector = new MediaCandidateCollector();
+        var uri = new Uri("https://cdn.example.com/master.m3u8");
+        collector.Add(new MediaCandidate
+        {
+            Url = uri,
+            Type = MediaSourceType.Hls,
+            Source = MediaCandidateSource.ResponseContentType,
+            Headers = new Dictionary<string, string> { ["referer"] = "https://actual.example/player" }
+        });
+        collector.Add(new MediaCandidate
+        {
+            Url = uri,
+            Type = MediaSourceType.Hls,
+            Source = MediaCandidateSource.BrowserObservation,
+            Headers = new Dictionary<string, string> { ["referer"] = "https://fallback.example/frame" }
+        });
+
+        var result = Assert.Single(collector.Snapshot());
+
+        Assert.Equal("https://actual.example/player", result.Headers["referer"]);
+        Assert.Equal(MediaCandidateSource.BrowserObservation, result.Source);
     }
 
     [Fact]
@@ -103,6 +219,36 @@ public sealed class ExtractionTests
             new Uri("https://cdn.example.com/movie.mp4"),
             MediaSourceType.Mp4,
             MediaCandidateSource.VideoElement);
+
+        Assert.Same(player, CandidateRanker.ChooseBest([network, player]));
+    }
+
+    [Fact]
+    public void CandidateRanker_PrefersBrowserObservedMediaOverRawNetworkUrl()
+    {
+        var network = Candidate(
+            new Uri("https://cdn.example.com/preload.mp4"),
+            MediaSourceType.Mp4,
+            MediaCandidateSource.NetworkUrl);
+        var observed = Candidate(
+            new Uri("https://cdn.example.com/player-video.mp4"),
+            MediaSourceType.Mp4,
+            MediaCandidateSource.BrowserObservation);
+
+        Assert.Same(observed, CandidateRanker.ChooseBest([network, observed]));
+    }
+
+    [Fact]
+    public void CandidateRanker_PrefersKnownPlayerSourceOverRawNetworkUrl()
+    {
+        var network = Candidate(
+            new Uri("https://cdn.example.com/preload.mp4"),
+            MediaSourceType.Mp4,
+            MediaCandidateSource.NetworkUrl);
+        var player = Candidate(
+            new Uri("https://cdn.example.com/movie.mp4"),
+            MediaSourceType.Mp4,
+            MediaCandidateSource.KnownPlayer);
 
         Assert.Same(player, CandidateRanker.ChooseBest([network, player]));
     }

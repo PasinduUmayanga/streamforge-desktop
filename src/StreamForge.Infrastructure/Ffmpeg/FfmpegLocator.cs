@@ -19,6 +19,17 @@ public sealed class FfmpegLocator : IFfmpegLocator
             return configured;
         }
 
-        return "ffmpeg";
+        var executableName = OperatingSystem.IsWindows() ? "ffmpeg.exe" : "ffmpeg";
+        foreach (var directory in (Environment.GetEnvironmentVariable("PATH") ?? string.Empty)
+                     .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var candidate = Path.Combine(directory.Trim('"'), executableName);
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return null;
     }
 }
