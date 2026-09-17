@@ -4,7 +4,7 @@ This file defines the working rules for future StreamForge feature changes. Read
 
 ## Product boundary
 
-StreamForge is a Windows x64 desktop application for processing media the user is authorized to save. It supports standard non-DRM HLS, DASH, and MP4 sources.
+StreamForge is a Windows desktop application with x86 and x64 app artifacts for processing media the user is authorized to save. It supports standard non-DRM HLS, DASH, and MP4 sources. The x86 app artifact runs on 64-bit Windows because the Playwright browser and bundled FFmpeg tooling are 64-bit; do not claim native 32-bit-Windows support.
 
 Do not add:
 
@@ -109,6 +109,7 @@ For changes to solution configuration, setup, packaging, or shared project refer
 
 ```powershell
 dotnet build StreamForge.sln /p:Platform=x64
+dotnet build StreamForge.sln /p:Platform=x86
 ```
 
 The build should finish with no new warnings. All relevant tests must pass.

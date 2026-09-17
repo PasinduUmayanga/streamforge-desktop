@@ -3,6 +3,7 @@ version: 1.0.{build}
 image: Visual Studio 2022
 
 platform:
+  - x86
   - x64
 
 configuration:
@@ -64,18 +65,21 @@ after_test:
         throw "The test success gate was not created. StreamForge will not be published."
       }
 
+      $runtimeIdentifier = if ($env:PLATFORM -eq "x86") { "win-x86" } else { "win-x64" }
+      $publishOutput = "artifacts\StreamForge-$runtimeIdentifier"
       dotnet publish src\StreamForge.App\StreamForge.App.csproj `
         --configuration $env:CONFIGURATION `
-        --runtime win-x64 `
+        --runtime $runtimeIdentifier `
+        /p:Platform=$env:PLATFORM `
         --no-restore `
-        --output artifacts\StreamForge-win-x64
+        --output $publishOutput
       if ($LASTEXITCODE -ne 0) {
-        throw "StreamForge publish failed."
+        throw "StreamForge $runtimeIdentifier publish failed."
       }
 
 artifacts:
-  - path: artifacts\StreamForge-win-x64
-    name: StreamForge-win-x64
+  - path: artifacts\StreamForge-win-*
+    name: StreamForge-win-%PLATFORM%
     type: zip
   - path: tests\**\TestResults\*.trx
     name: test-results

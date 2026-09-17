@@ -14,6 +14,7 @@ Only download media that you own or are authorized to save. StreamForge does not
 ## Current features
 
 - .NET 10 and WinUI 3 desktop application with an MVVM presentation layer.
+- Separate `win-x86` and `win-x64` application artifacts for 32-bit and 64-bit app processes on 64-bit Windows.
 - Responsive single-column and two-column layouts for narrow, medium, and wide windows.
 - Live network-analysis panel with redacted query-string values.
 - JavaScript page loading and request observation through Playwright Chromium.
@@ -92,7 +93,7 @@ The UI does not contain stream-extraction or FFmpeg process logic. Core contract
 ## Requirements
 
 - Windows 10 version 1809 or later
-- x64 environment
+- 64-bit Windows environment; the x86 artifact runs as a 32-bit process through WOW64
 - .NET 10 SDK
 - PowerShell 7
 - Visual Studio 2026 with WinUI and Windows desktop build tooling
@@ -145,13 +146,22 @@ When Analyze is first used, the application also attempts a one-time Chromium in
 
 ```powershell
 dotnet build StreamForge.sln /p:Platform=x64
+dotnet build StreamForge.sln /p:Platform=x86
 dotnet test tests\StreamForge.Infrastructure.Tests\StreamForge.Infrastructure.Tests.csproj
 ```
 
 To build only the desktop application:
 
 ```powershell
-dotnet build src\StreamForge.App\StreamForge.App.csproj
+dotnet build src\StreamForge.App\StreamForge.App.csproj /p:Platform=x64
+dotnet build src\StreamForge.App\StreamForge.App.csproj /p:Platform=x86
+```
+
+To publish both architecture-specific outputs locally:
+
+```powershell
+dotnet publish src\StreamForge.App\StreamForge.App.csproj -c Release -r win-x64 /p:Platform=x64 -o artifacts\StreamForge-win-x64
+dotnet publish src\StreamForge.App\StreamForge.App.csproj -c Release -r win-x86 /p:Platform=x86 -o artifacts\StreamForge-win-x86
 ```
 
 ## Run
@@ -191,13 +201,13 @@ Arguments are passed with `ProcessStartInfo.ArgumentList`; page URLs and output 
 
 ## Continuous integration
 
-AppVeyor installs .NET 10, prepares Playwright and FFmpeg, builds the x64 Release configuration, and runs the infrastructure test suite. The `StreamForge-win-x64` artifact is published only after the test gate succeeds.
+AppVeyor installs .NET 10, prepares Playwright and FFmpeg, builds separate x86 and x64 Release jobs, and runs the infrastructure test suite. The `StreamForge-win-x86` and `StreamForge-win-x64` artifacts are published only after the test gate succeeds for their respective jobs.
 
 The pipeline caches the .NET SDK, Playwright browser, project-local FFmpeg, and—when it fits the account cache limit—NuGet packages. AppVeyor may skip an oversized NuGet cache without failing an otherwise successful build.
 
 ## Current limitations
 
-- Windows x64 is the only packaged target.
+- The application is packaged for x86 and x64, but the Playwright Chromium and downloaded FFmpeg tools are 64-bit. Consequently, the x86 application artifact is intended for 64-bit Windows running a 32-bit app process; native 32-bit Windows is not supported.
 - HLS quality selection is implemented; DASH quality selection is not yet implemented.
 - Only one download can run at a time.
 - Download history, queues, resume-after-restart, subtitles, alternate audio tracks, and automatic updates are not implemented.
